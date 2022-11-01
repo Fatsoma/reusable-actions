@@ -1,0 +1,39 @@
+name: authorize to ecr and generate images
+
+on:
+  workflow_call:
+    inputs:
+      aws-region:
+        description: "AWS cluster region"
+        type: string
+      ecr-repository:
+        description: "AWS repository"
+        type: string
+      image-tag:
+        description: "Tag for image build"
+        type: string
+
+jobs:
+  aws-auth-and-push:
+    name: build and push image to ECR Repo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: build and push
+        run: |
+          docker build -t ${{ steps.login-ecr.outputs.registry }}/${{ inputs.ecr-repository }}:${{ inputs.image-tag }} .
+          docker push ${{ steps.login-ecr.outputs.registry }}/${{ inputs.ecr-repository }}:${{ inputs.image-tag }}
