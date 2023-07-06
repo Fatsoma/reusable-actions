@@ -1,0 +1,26 @@
+name: Go Syntax Check
+
+on:
+  workflow_call:
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Go Format
+        run: |
+          GOFMT_OUTPUT=$(gofmt -l $(find . -path '*/vendor/*' -prune -o -name '*.go' -print))
+          if [ -n "$GOFMT_OUTPUT" ] ; then
+            echo 'The following files are not correctly formatted:'
+            echo "${GOFMT_OUTPUT}"
+            exit 1
+          fi
+
+      - name: Go Vet
+        run: go vet ./...

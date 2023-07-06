@@ -1,0 +1,76 @@
+name: Go Test
+
+on:
+  workflow_call:
+    inputs:
+      enable-translate:
+        description: "True to make translations with 'make translate'"
+        type: boolean
+        default: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: 'go.mod'
+      - name: Set up redis-server
+        uses: supercharge/redis-github-action@1.5.0
+        with:
+          redis-version: 5
+
+      - name: Test dependencies
+        run: |
+          go install github.com/jstemmer/go-junit-report/v2@latest
+          go install github.com/nicksnyder/go-i18n/goi18n@v1.10.1
+          go install github.com/axw/gocov/gocov@latest
+          go install github.com/matm/gocov-html/cmd/gocov-html@latest
+      - name: Create result directory
+        run: mkdir -p results
+      - name: Translations
+        run: make translate
+        if: ${{ inputs.enable-translate }}
+
+      - name: Test
+        shell: bash
+        run: go test -coverprofile=cp.out -race ./... 2>&1 | tee test.out
+      - name: Integration Test
+        shell: bash
+        run: go test -v -count=1 -tags integration -cover -race ./... 2>&1 | tee integration.out
+
+      - name: Test Junit report
+        run: |
+          [ ! -f test.out ] || go-junit-report < test.out > results/test-report.xml
+        if: always()
+      - name: Integration Test Junit report
+        run: |
+          [ ! -f integration.out ] || go-junit-report < integration.out > results/integration-report.xml
+        if: always()
+      - name: Test Summary
+        uses: test-summary/action@v2
+        with:
+          paths: |
+            results/*.xml
+        if: always()
+
+      - name: Coverage
+        run: |
+          gocov convert cp.out > gocov.out
+          gocov-html < gocov.out > cov-test.html
+      - name: Coverage summary
+        run: |
+          (
+            echo '## Coverage'
+            echo ''
+            gocov report < gocov.out | tail -n 1
+          ) >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload test coverage
+        uses: actions/upload-artifact@v3
+        with:
+          name: Test-Coverage
+          path: cov-test.html

@@ -1,0 +1,31 @@
+name: Go Security Check
+
+on:
+  workflow_call:
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Get security dependencies
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run Security Report
+        shell: bash
+        run: gosec -fmt yaml -out=security-report.yml -stdout ./...
+      - name: Output Security Report
+        run: |
+          (
+            echo '```yaml'
+            cat security-report.yml
+            echo ''
+            echo '```'
+          ) >> $GITHUB_STEP_SUMMARY
+        if: always()
