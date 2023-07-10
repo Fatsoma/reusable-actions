@@ -3,6 +3,10 @@ name: Go Test
 on:
   workflow_call:
     inputs:
+      enable-redis:
+        description: "True to start redis server"
+        type: boolean
+        default: false
       enable-translate:
         description: "True to make translations with 'make translate'"
         type: boolean
@@ -22,6 +26,7 @@ jobs:
         uses: supercharge/redis-github-action@1.5.0
         with:
           redis-version: 5
+        if: ${{ inputs.enable-redis }}
 
       - name: Test dependencies
         run: |
