@@ -31,8 +31,6 @@ jobs:
       - name: Test dependencies
         run: |
           go install github.com/joschi/go-junit-report/v2/cmd/go-junit-report@latest
-          go install github.com/axw/gocov/gocov@latest
-          go install github.com/matm/gocov-html/cmd/gocov-html@latest
       - name: Translation dependencies
         run: go install github.com/nicksnyder/go-i18n/goi18n@v1.10.1
         if: ${{ inputs.enable-translate }}
@@ -70,14 +68,14 @@ jobs:
 
       - name: Coverage
         run: |
-          gocov convert cp.out > gocov.out
-          gocov-html < gocov.out > cov-test.html
+          go tool cover -func=cp.out -o=gocov.out
+          go tool cover -html=cp.out -o=cov-test.html
       - name: Coverage summary
         run: |
           (
             echo '## Coverage'
             echo ''
-            gocov report < gocov.out | tail -n 1
+            tail -n 1 gocov.out | column -t
           ) >> $GITHUB_STEP_SUMMARY
 
       - name: Upload test coverage
