@@ -1,4 +1,4 @@
-name: Go Integration Elasticsearch
+name: Go Coverage Elasticsearch
 
 on:
   workflow_call:
@@ -11,21 +11,11 @@ on:
         description: Newline-delimited private module repositories for the GitHub App token.
         required: true
         type: string
-      env:
-        description: Newline-delimited KEY=VALUE integration environment variables.
-        default: ""
-        required: false
-        type: string
       translate:
-        description: Run make translate before the integration tests.
+        description: Run make translate before coverage.
         default: false
         required: false
         type: boolean
-      test-path:
-        description: Package path for the integration tests.
-        default: ./test/integration
-        required: false
-        type: string
     secrets:
       FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
         description: GitHub App private key used to read private Go modules.
@@ -35,8 +25,8 @@ permissions:
   contents: read
 
 jobs:
-  integration:
-    name: Integration
+  coverage:
+    name: Coverage
     runs-on: ubuntu-24.04
     services:
       elasticsearch:
@@ -80,36 +70,32 @@ jobs:
           GOPRIVATE: github.com/fatsoma/*
         run: go mod download
 
-      - name: Use installed Go timezone data
-        shell: bash
-        run: echo "ZONEINFO=$(go env GOROOT)/lib/time/zoneinfo.zip" >> "$GITHUB_ENV"
-
-      - name: Set integration environment
-        shell: bash
-        run: |
-          cat <<'EOF' >> "$GITHUB_ENV"
-          ${{ inputs.env }}
-          EOF
-
       - name: Merge translations
         if: inputs.translate
         shell: bash
         run: make translate
 
-      - name: Run integration tests
+      - name: Run coverage
         shell: bash
         run: |
-          set -o pipefail
-          mkdir -p test-results
-          go test -json -tags integration "${{ inputs.test-path }}" | tee test-results/go-integration-test.json
+          TZ="" go test -v -coverprofile=cover.out ./...
+          mkdir -p coverage
+          go tool cover -html=cover.out -o coverage/report.html
 
-      - name: Upload integration test results
+      - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: integration-test-results
-          path: test-results
+          name: coverage
+          path: coverage
           if-no-files-found: warn
+
+      - name: Write coverage summary
+        if: success()
+        shell: bash
+        run: |
+          total_coverage="$(go tool cover -func=cover.out | awk '/^total:/ { print $3 }')"
+          echo "total: **${total_coverage}**" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Show Elasticsearch logs on failure
         if: failure()

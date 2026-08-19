@@ -90,23 +90,29 @@ with:
 secrets: inherit
 ```
 
-Test and Coverage are always service-free and run unit tests only. Unit and integration tests are separated: integration tests (build-tag `integration`) run in a dedicated Integration job.
+Unit and integration tests are separated. Test and Coverage run unit tests and are service-free by default. A few repositories bootstrap a datastore in their application wiring, so their unit tests require that service; those use a service-backed Test/Coverage profile and run their integration suite inline via `tags: integration`.
 
-`go-test.yml` derives `ZONEINFO` from `go env GOROOT`, runs `go test -json ./...`, and uploads `test-results/go-test.json`. `go-coverage.yml` runs `TZ="" go test -v -coverprofile=cover.out ./...`. Set `translate: true` only when the repository contract runs `make translate`; it defaults to `false`.
+Test/Coverage entrypoints:
+
+| Unit needs | Test | Coverage |
+| --- | --- | --- |
+| No services | `go-test.yml` | `go-coverage.yml` |
+| Elasticsearch | `go-test-elasticsearch.yml` | `go-coverage-elasticsearch.yml` |
+| Elasticsearch + Valkey | `go-test-elasticsearch-valkey.yml` | `go-coverage-elasticsearch.yml` |
+
+`go-test*.yml` derives `ZONEINFO` from `go env GOROOT`, runs `go test -json ./...`, and uploads `test-results/go-test.json`. The Elasticsearch and Elasticsearch + Valkey Test profiles accept `tags` (set `tags: integration` to run inline integration tests). `go-coverage*.yml` runs `TZ="" go test -v -coverprofile=cover.out ./...`. Set `translate: true` only when the repository contract runs `make translate`.
 
 Security has no service profile. `go-security.yml` runs the official mutable `securego/gosec@master` action with `args: ./...`. Findings fail the job; accepted exceptions remain versioned source annotations. It does not upload a security-report artifact or read CI-local scanner configuration.
 
 ## Go Integration
 
-Integration tests run in a dedicated job with a service profile matching the required backends. Each entrypoint runs `go test -json -tags integration <test-path>` (default `./test/integration`) and uploads `integration-test-results`:
+When a repository's integration suite needs a service its unit tests do not, run integration in a dedicated job with the matching service profile. Each entrypoint runs `go test -json -tags integration <test-path>` (default `./test/integration`) and uploads `integration-test-results`:
 
 | Services | Entrypoint |
 | --- | --- |
 | None | `go-integration.yml` |
 | Redis | `go-integration-redis.yml` |
 | RabbitMQ | `go-integration-rabbitmq.yml` |
-| Elasticsearch | `go-integration-elasticsearch.yml` |
-| Elasticsearch + Valkey | `go-integration-elasticsearch-valkey.yml` |
 | PostgreSQL | `go-integration-postgres.yml` |
 | PostgreSQL + RabbitMQ | `go-integration-postgres-rabbitmq.yml` |
 
