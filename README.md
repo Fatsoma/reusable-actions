@@ -101,7 +101,7 @@ Profiles fix service images, ports, health checks, readiness probes, and failure
 
 Security has no service profile. `go-security.yml` runs the official mutable `securego/gosec@master` action with `args: ./...`. Findings fail the job; accepted exceptions remain versioned source annotations. It does not upload a security-report artifact or read CI-local scanner configuration.
 
-Every Test workflow runs `go test -json ./...` and uploads `test-results/go-test.json`. Every Coverage workflow runs `TZ="" go test -v -coverprofile=cover.out ./...`; callers must first ensure integration tests are correctly build-tagged or otherwise safe in that package scope. Set `translate: true` only when the repository contract runs `make translate`; it defaults to `false`.
+Every Test workflow derives `ZONEINFO` from `go env GOROOT`, runs `go test -json ./...`, and uploads `test-results/go-test.json`. Every Coverage workflow runs `TZ="" go test -v -coverprofile=cover.out ./...`; callers must first ensure integration tests are correctly build-tagged or otherwise safe in that package scope. Set `translate: true` only when the repository contract runs `make translate`; it defaults to `false`.
 
 Integration jobs remain repository-local. Callers retain triggers, the same-repository pull-request guard, `needs`, and any profile not listed above. Changing shared CI behavior requires a governed finding, two-repository validation, and an approved reusable-actions release PR.
 
