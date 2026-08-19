@@ -5,6 +5,10 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: gomod
-    directory: /tools
+    directory: /tools/junit
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /tools/gosec
     schedule:
       interval: weekly
