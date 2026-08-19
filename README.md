@@ -111,6 +111,7 @@ Integration tests run in a dedicated job gated on `needs: [test, coverage, secur
 | --- | --- |
 | None | `go-integration.yml` |
 | Redis | `go-integration-redis.yml` |
+| Valkey | `go-integration-valkey.yml` |
 | RabbitMQ | `go-integration-rabbitmq.yml` |
 | Elasticsearch | `go-integration-elasticsearch.yml` |
 | Elasticsearch + Valkey | `go-integration-elasticsearch-valkey.yml` |
