@@ -92,12 +92,12 @@ secrets: inherit
 
 Use the entrypoint matching the required service contract:
 
-| Job | No services | Elasticsearch | RabbitMQ | Elasticsearch + Valkey |
-| --- | --- | --- | --- | --- |
-| Test | `go-test.yml` | `go-test-elasticsearch.yml` | `go-test-rabbitmq.yml` | `go-test-elasticsearch-valkey.yml` |
-| Coverage | `go-coverage.yml` | `go-coverage-elasticsearch.yml` | `go-coverage-rabbitmq.yml` | Not available |
+| Job | No services | Elasticsearch | RabbitMQ | Redis | Elasticsearch + Valkey |
+| --- | --- | --- | --- | --- | --- |
+| Test | `go-test.yml` | `go-test-elasticsearch.yml` | `go-test-rabbitmq.yml` | `go-test-redis.yml` | `go-test-elasticsearch-valkey.yml` |
+| Coverage | `go-coverage.yml` | `go-coverage-elasticsearch.yml` | `go-coverage-rabbitmq.yml` | `go-coverage-redis.yml` | Not available |
 
-Profiles fix service images, ports, health checks, readiness probes, and failure diagnostics. They do not accept service-image overrides. Redis and Elasticsearch coverage-with-Valkey profiles are not available yet; keep those jobs local until a published profile supports the exact contract.
+Profiles fix service images, ports, health checks, readiness probes, and failure diagnostics. They do not accept service-image overrides. A Valkey-only profile and Elasticsearch coverage-with-Valkey profile are not available yet; keep those jobs local until a published profile supports the exact contract.
 
 Security has no service profile. `go-security.yml` runs the official mutable `securego/gosec@master` action with `args: ./...`. Findings fail the job; accepted exceptions remain versioned source annotations. It does not upload a security-report artifact or read CI-local scanner configuration.
 
