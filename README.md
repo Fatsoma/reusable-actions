@@ -90,50 +90,49 @@ with:
 secrets: inherit
 ```
 
-Use the entrypoint matching the required service contract:
+Test and Coverage are always service-free and run unit tests only. Unit and integration tests are separated: integration tests (build-tag `integration`) run in a dedicated Integration job.
 
-| Job | No services | Elasticsearch | RabbitMQ | Redis | Elasticsearch + Valkey |
-| --- | --- | --- | --- | --- | --- |
-| Test | `go-test.yml` | `go-test-elasticsearch.yml` | `go-test-rabbitmq.yml` | `go-test-redis.yml` | `go-test-elasticsearch-valkey.yml` |
-| Coverage | `go-coverage.yml` | `go-coverage-elasticsearch.yml` | `go-coverage-rabbitmq.yml` | `go-coverage-redis.yml` | Not available |
-
-Profiles fix service images, ports, health checks, readiness probes, and failure diagnostics. They do not accept service-image overrides. A Valkey-only profile and Elasticsearch coverage-with-Valkey profile are not available yet; keep those jobs local until a published profile supports the exact contract.
+`go-test.yml` derives `ZONEINFO` from `go env GOROOT`, runs `go test -json ./...`, and uploads `test-results/go-test.json`. `go-coverage.yml` runs `TZ="" go test -v -coverprofile=cover.out ./...`. Set `translate: true` only when the repository contract runs `make translate`; it defaults to `false`.
 
 Security has no service profile. `go-security.yml` runs the official mutable `securego/gosec@master` action with `args: ./...`. Findings fail the job; accepted exceptions remain versioned source annotations. It does not upload a security-report artifact or read CI-local scanner configuration.
 
-Every Test workflow derives `ZONEINFO` from `go env GOROOT`, runs `go test -json ./...`, and uploads `test-results/go-test.json`. Set `tags: integration` to include build-tag-gated tests that a repository runs inside its Test check. Every Coverage workflow runs `TZ="" go test -v -coverprofile=cover.out ./...` untagged. Set `translate: true` only when the repository contract runs `make translate`; both default to unset/false.
-
 ## Go Integration
 
-Dedicated Integration workflows run build-tag-gated tests that need databases. They are separate entrypoints per service profile:
+Integration tests run in a dedicated job with a service profile matching the required backends. Each entrypoint runs `go test -json -tags integration <test-path>` (default `./test/integration`) and uploads `integration-test-results`:
 
 | Services | Entrypoint |
 | --- | --- |
+| None | `go-integration.yml` |
+| Redis | `go-integration-redis.yml` |
+| RabbitMQ | `go-integration-rabbitmq.yml` |
+| Elasticsearch | `go-integration-elasticsearch.yml` |
+| Elasticsearch + Valkey | `go-integration-elasticsearch-valkey.yml` |
 | PostgreSQL | `go-integration-postgres.yml` |
 | PostgreSQL + RabbitMQ | `go-integration-postgres-rabbitmq.yml` |
 
-Each runs `go test -json -tags integration <test-path>` (default `./test/integration`) and uploads `integration-test-results`. Inputs:
+Shared inputs: `app-client-id`, `module-allowlist`, optional `env` (newline `KEY=VALUE`, exported before tests), optional `translate`, and optional `test-path`. Postgres profiles additionally accept `migrate`, `migrations-dir`, and `postgres-db` / `postgres-user` / `postgres-password`.
 
 ```yml
-with:
-  app-client-id: ${{ vars.FATSOMA_DEPENDENCIES_APP_CLIENT_ID }}
-  module-allowlist: |
-    v2-api-auth
-    v2-migration-tool
-  env: |               # Optional; KEY=VALUE per line, exported before tests.
-    APP_NAME=scanner
-    DATABASE_HOST=127.0.0.1
-    DATABASE_PORT=5432
-  migrate: true        # Optional; defaults to false.
-  migrations-dir: db   # Optional; defaults to db.
-  test-path: ./test/integration  # Optional.
-  postgres-db: service_scanner_sync_test
-  postgres-user: integration_user
-  postgres-password: integration_password
-secrets: inherit
+integration:
+  needs: [test, coverage, security]
+  uses: Fatsoma/reusable-actions/.github/workflows/go-integration-postgres.yml@REUSABLE_ACTIONS_SHA # v1
+  with:
+    app-client-id: ${{ vars.FATSOMA_DEPENDENCIES_APP_CLIENT_ID }}
+    module-allowlist: |
+      v2-api-auth
+      v2-migration-tool
+    env: |
+      APP_NAME=payment
+      DATABASE_HOST=127.0.0.1
+      DATABASE_PORT=5432
+    migrate: true
+    postgres-db: api_payments_test
+    postgres-user: integration_user
+    postgres-password: integration_password
+  secrets: inherit
 ```
 
-Migrations use `go run github.com/fatsoma/v2-migration-tool/cmd/migration-tool@latest up` from `migrations-dir`, deliberately tracking the latest migration tool. The caller job owns triggers, the same-repository pull-request guard, and `needs`.
+Migrations use `go run github.com/fatsoma/v2-migration-tool/cmd/migration-tool@latest up` from `migrations-dir`, deliberately tracking the latest migration tool. The integration caller job gates on `needs: [test, coverage, security]` and owns triggers and the same-repository pull-request guard.
 
 Changing shared CI behavior requires a governed finding, two-repository validation, and an approved reusable-actions release PR.
 

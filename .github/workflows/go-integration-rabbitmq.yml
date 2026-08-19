@@ -1,4 +1,4 @@
-name: Go Coverage Elasticsearch
+name: Go Integration RabbitMQ
 
 on:
   workflow_call:
@@ -11,11 +11,21 @@ on:
         description: Newline-delimited private module repositories for the GitHub App token.
         required: true
         type: string
+      env:
+        description: Newline-delimited KEY=VALUE integration environment variables.
+        default: ""
+        required: false
+        type: string
       translate:
-        description: Run make translate before coverage.
+        description: Run make translate before the integration tests.
         default: false
         required: false
         type: boolean
+      test-path:
+        description: Package path for the integration tests.
+        default: ./test/integration
+        required: false
+        type: string
     secrets:
       FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
         description: GitHub App private key used to read private Go modules.
@@ -25,21 +35,19 @@ permissions:
   contents: read
 
 jobs:
-  coverage:
-    name: Coverage
+  integration:
+    name: Integration
     runs-on: ubuntu-24.04
     services:
-      elasticsearch:
-        image: docker.elastic.co/elasticsearch/elasticsearch:5.6.16
-        env:
-          xpack.security.enabled: false
+      rabbitmq:
+        image: rabbitmq:4.2.2
         ports:
-          - 9200:9200
+          - 5672:5672
         options: >-
-          --health-cmd "curl --fail http://localhost:9200/_cluster/health"
+          --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 15
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -70,33 +78,37 @@ jobs:
           GOPRIVATE: github.com/fatsoma/*
         run: go mod download
 
+      - name: Use installed Go timezone data
+        shell: bash
+        run: echo "ZONEINFO=$(go env GOROOT)/lib/time/zoneinfo.zip" >> "$GITHUB_ENV"
+
+      - name: Set integration environment
+        shell: bash
+        run: |
+          cat <<'EOF' >> "$GITHUB_ENV"
+          ${{ inputs.env }}
+          EOF
+
       - name: Merge translations
         if: inputs.translate
         shell: bash
         run: make translate
 
-      - name: Run coverage
+      - name: Run integration tests
         shell: bash
         run: |
-          TZ="" go test -v -coverprofile=cover.out ./...
-          mkdir -p coverage
-          go tool cover -html=cover.out -o coverage/report.html
+          set -o pipefail
+          mkdir -p test-results
+          go test -json -tags integration "${{ inputs.test-path }}" | tee test-results/go-integration-test.json
 
-      - name: Upload coverage report
+      - name: Upload integration test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: coverage
-          path: coverage
+          name: integration-test-results
+          path: test-results
           if-no-files-found: warn
 
-      - name: Write coverage summary
-        if: success()
-        shell: bash
-        run: |
-          total_coverage="$(go tool cover -func=cover.out | awk '/^total:/ { print $3 }')"
-          echo "total: **${total_coverage}**" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Show Elasticsearch logs on failure
+      - name: Show RabbitMQ logs on failure
         if: failure()
-        run: docker logs "${{ job.services.elasticsearch.id }}"
+        run: docker logs "${{ job.services.rabbitmq.id }}"

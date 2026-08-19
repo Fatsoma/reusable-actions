@@ -31,6 +31,11 @@ on:
         default: ./test/integration
         required: false
         type: string
+      translate:
+        description: Run make translate before the integration tests.
+        default: false
+        required: false
+        type: boolean
       postgres-db:
         description: Postgres database name for the service container.
         required: true
@@ -108,12 +113,21 @@ jobs:
           GOPRIVATE: github.com/fatsoma/*
         run: go mod download
 
+      - name: Use installed Go timezone data
+        shell: bash
+        run: echo "ZONEINFO=$(go env GOROOT)/lib/time/zoneinfo.zip" >> "$GITHUB_ENV"
+
       - name: Set integration environment
         shell: bash
         run: |
           cat <<'EOF' >> "$GITHUB_ENV"
           ${{ inputs.env }}
           EOF
+
+      - name: Merge translations
+        if: inputs.translate
+        shell: bash
+        run: make translate
 
       - name: Run migrations
         if: inputs.migrate
