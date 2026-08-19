@@ -93,10 +93,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p test-results
-          junit_report="$RUNNER_TEMP/go-junit-report"
-          go -C tools build -o "$junit_report" github.com/jstemmer/go-junit-report/v2
-          trap '"${junit_report}" <test-results/go-test.out >test-results/go-test-report.xml' EXIT
-          make test | tee test-results/go-test.out
+          go test -json ./... | tee test-results/go-test.json
 
       - name: Upload test results
         if: always()

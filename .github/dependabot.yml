@@ -4,11 +4,3 @@ updates:
     directory: /
     schedule:
       interval: weekly
-  - package-ecosystem: gomod
-    directory: /tools/junit
-    schedule:
-      interval: weekly
-  - package-ecosystem: gomod
-    directory: /tools/gosec
-    schedule:
-      interval: weekly

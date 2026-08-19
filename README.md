@@ -38,6 +38,8 @@ jobs:
 
 The Go CI workflows standardize `Test`, `Coverage`, and `Security` jobs for approved service profiles. Each call uses an immutable `REUSABLE_ACTIONS_SHA`. The private key is inherited, while the GitHub App client ID and repository-specific private-module allowlist are explicit inputs.
 
+Test workflows use Go's native JSON output and need no reporting tool. Security runs the official `securego/gosec@master` action with its default `./...` arguments, deliberately tracking the latest stable gosec release.
+
 ```yml
 permissions:
   contents: read
@@ -97,9 +99,9 @@ Use the entrypoint matching the required service contract:
 
 Profiles fix service images, ports, health checks, readiness probes, and failure diagnostics. They do not accept service-image or environment overrides. PostgreSQL, PostgreSQL plus RabbitMQ, and Redis profiles are not available yet; keep those jobs local until a published profile supports the exact contract.
 
-Security has no service profile. `go-security.yml` runs the governed `gosec` command, uploads `security-report` before failing on findings, and relies on versioned source annotations for accepted scanner exceptions. It does not read CI-local scanner configuration.
+Security has no service profile. `go-security.yml` runs the official mutable `securego/gosec@master` action with `args: ./...`. Findings fail the job; accepted exceptions remain versioned source annotations. It does not upload a security-report artifact or read CI-local scanner configuration.
 
-Every Test workflow runs `make test`. Every Coverage workflow runs `TZ="" go test -v -coverprofile=cover.out ./...`; callers must first ensure integration tests are correctly build-tagged or otherwise safe in that package scope. Set `translate: true` only when the repository contract runs `make translate`; it defaults to `false`.
+Every Test workflow runs `go test -json ./...` and uploads `test-results/go-test.json`. Every Coverage workflow runs `TZ="" go test -v -coverprofile=cover.out ./...`; callers must first ensure integration tests are correctly build-tagged or otherwise safe in that package scope. Set `translate: true` only when the repository contract runs `make translate`; it defaults to `false`.
 
 Integration jobs remain repository-local. Callers retain triggers, the same-repository pull-request guard, `needs`, and any profile not listed above. Changing shared CI behavior requires a governed finding, two-repository validation, and an approved reusable-actions release PR.
 
