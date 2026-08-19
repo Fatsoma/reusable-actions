@@ -1,0 +1,113 @@
+name: Go Test Elasticsearch Valkey
+
+on:
+  workflow_call:
+    inputs:
+      app-client-id:
+        description: GitHub App client ID used to read private Go modules.
+        required: true
+        type: string
+      module-allowlist:
+        description: Newline-delimited private module repositories for the GitHub App token.
+        required: true
+        type: string
+      translate:
+        description: Run make translate before tests.
+        default: false
+        required: false
+        type: boolean
+    secrets:
+      FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
+        description: GitHub App private key used to read private Go modules.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    services:
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:5.6.16
+        env:
+          xpack.security.enabled: false
+          ES_JAVA_OPTS: -Xms1g -Xmx1g
+        ports:
+          - 9200:9200
+      valkey:
+        image: valkey/valkey:8.1
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Create private-module token
+        id: module-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY }}
+          owner: Fatsoma
+          repositories: ${{ inputs.module-allowlist }}
+          permission-contents: read
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure private module access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.module-token.outputs.token }}
+        run: git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Download modules
+        shell: bash
+        env:
+          GOPRIVATE: github.com/fatsoma/*
+        run: go mod download
+
+      - name: Wait for services
+        shell: bash
+        run: |
+          for _ in {1..60}; do
+            if curl --fail --silent --show-error http://127.0.0.1:9200 >/dev/null && bash -c '</dev/tcp/127.0.0.1/6379'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "${{ job.services.elasticsearch.id }}" || true
+          docker logs "${{ job.services.valkey.id }}" || true
+          exit 1
+
+      - name: Merge translations
+        if: inputs.translate
+        shell: bash
+        run: make translate
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p test-results
+          junit_report="$RUNNER_TEMP/go-junit-report"
+          go -C tools build -o "$junit_report" github.com/jstemmer/go-junit-report/v2
+          trap '"${junit_report}" <test-results/go-test.out >test-results/go-test-report.xml' EXIT
+          make test | tee test-results/go-test.out
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: test-results
+          path: test-results
+          if-no-files-found: warn
+
+      - name: Show service logs on failure
+        if: failure()
+        run: |
+          docker logs "${{ job.services.elasticsearch.id }}" || true
+          docker logs "${{ job.services.valkey.id }}" || true

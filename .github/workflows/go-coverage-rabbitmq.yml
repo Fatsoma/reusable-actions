@@ -1,0 +1,100 @@
+name: Go Coverage RabbitMQ
+
+on:
+  workflow_call:
+    inputs:
+      app-client-id:
+        description: GitHub App client ID used to read private Go modules.
+        required: true
+        type: string
+      module-allowlist:
+        description: Newline-delimited private module repositories for the GitHub App token.
+        required: true
+        type: string
+      translate:
+        description: Run make translate before coverage.
+        default: false
+        required: false
+        type: boolean
+    secrets:
+      FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
+        description: GitHub App private key used to read private Go modules.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    services:
+      rabbitmq:
+        image: rabbitmq:4.2.2
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Create private-module token
+        id: module-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY }}
+          owner: Fatsoma
+          repositories: ${{ inputs.module-allowlist }}
+          permission-contents: read
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Configure private module access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.module-token.outputs.token }}
+        run: git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Download modules
+        shell: bash
+        env:
+          GOPRIVATE: github.com/fatsoma/*
+        run: go mod download
+
+      - name: Merge translations
+        if: inputs.translate
+        shell: bash
+        run: make translate
+
+      - name: Run coverage
+        shell: bash
+        run: |
+          TZ="" go test -v -coverprofile=cover.out ./...
+          mkdir -p coverage
+          go tool cover -html=cover.out -o coverage/report.html
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage
+          path: coverage
+          if-no-files-found: warn
+
+      - name: Write coverage summary
+        if: success()
+        shell: bash
+        run: |
+          total_coverage="$(go tool cover -func=cover.out | awk '/^total:/ { print $3 }')"
+          echo "total: **${total_coverage}**" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Show RabbitMQ logs on failure
+        if: failure()
+        run: docker logs "${{ job.services.rabbitmq.id }}"
