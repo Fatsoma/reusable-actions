@@ -16,6 +16,11 @@ on:
         default: false
         required: false
         type: boolean
+      tags:
+        description: Optional build tags to include (for example, integration).
+        default: ""
+        required: false
+        type: string
     secrets:
       FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
         description: GitHub App private key used to read private Go modules.
@@ -69,10 +74,16 @@ jobs:
 
       - name: Run tests
         shell: bash
+        env:
+          GO_TEST_TAGS: ${{ inputs.tags }}
         run: |
           set -o pipefail
           mkdir -p test-results
-          go test -json ./... | tee test-results/go-test.json
+          tag_args=()
+          if [ -n "$GO_TEST_TAGS" ]; then
+            tag_args=(-tags "$GO_TEST_TAGS")
+          fi
+          go test -json "${tag_args[@]}" ./... | tee test-results/go-test.json
 
       - name: Upload test results
         if: always()

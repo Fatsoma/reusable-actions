@@ -97,13 +97,45 @@ Use the entrypoint matching the required service contract:
 | Test | `go-test.yml` | `go-test-elasticsearch.yml` | `go-test-rabbitmq.yml` | `go-test-elasticsearch-valkey.yml` |
 | Coverage | `go-coverage.yml` | `go-coverage-elasticsearch.yml` | `go-coverage-rabbitmq.yml` | Not available |
 
-Profiles fix service images, ports, health checks, readiness probes, and failure diagnostics. They do not accept service-image or environment overrides. PostgreSQL, PostgreSQL plus RabbitMQ, and Redis profiles are not available yet; keep those jobs local until a published profile supports the exact contract.
+Profiles fix service images, ports, health checks, readiness probes, and failure diagnostics. They do not accept service-image overrides. Redis and Elasticsearch coverage-with-Valkey profiles are not available yet; keep those jobs local until a published profile supports the exact contract.
 
 Security has no service profile. `go-security.yml` runs the official mutable `securego/gosec@master` action with `args: ./...`. Findings fail the job; accepted exceptions remain versioned source annotations. It does not upload a security-report artifact or read CI-local scanner configuration.
 
-Every Test workflow derives `ZONEINFO` from `go env GOROOT`, runs `go test -json ./...`, and uploads `test-results/go-test.json`. Every Coverage workflow runs `TZ="" go test -v -coverprofile=cover.out ./...`; callers must first ensure integration tests are correctly build-tagged or otherwise safe in that package scope. Set `translate: true` only when the repository contract runs `make translate`; it defaults to `false`.
+Every Test workflow derives `ZONEINFO` from `go env GOROOT`, runs `go test -json ./...`, and uploads `test-results/go-test.json`. Set `tags: integration` to include build-tag-gated tests that a repository runs inside its Test check. Every Coverage workflow runs `TZ="" go test -v -coverprofile=cover.out ./...` untagged. Set `translate: true` only when the repository contract runs `make translate`; both default to unset/false.
 
-Integration jobs remain repository-local. Callers retain triggers, the same-repository pull-request guard, `needs`, and any profile not listed above. Changing shared CI behavior requires a governed finding, two-repository validation, and an approved reusable-actions release PR.
+## Go Integration
+
+Dedicated Integration workflows run build-tag-gated tests that need databases. They are separate entrypoints per service profile:
+
+| Services | Entrypoint |
+| --- | --- |
+| PostgreSQL | `go-integration-postgres.yml` |
+| PostgreSQL + RabbitMQ | `go-integration-postgres-rabbitmq.yml` |
+
+Each runs `go test -json -tags integration <test-path>` (default `./test/integration`) and uploads `integration-test-results`. Inputs:
+
+```yml
+with:
+  app-client-id: ${{ vars.FATSOMA_DEPENDENCIES_APP_CLIENT_ID }}
+  module-allowlist: |
+    v2-api-auth
+    v2-migration-tool
+  env: |               # Optional; KEY=VALUE per line, exported before tests.
+    APP_NAME=scanner
+    DATABASE_HOST=127.0.0.1
+    DATABASE_PORT=5432
+  migrate: true        # Optional; defaults to false.
+  migrations-dir: db   # Optional; defaults to db.
+  test-path: ./test/integration  # Optional.
+  postgres-db: service_scanner_sync_test
+  postgres-user: integration_user
+  postgres-password: integration_password
+secrets: inherit
+```
+
+Migrations use `go run github.com/fatsoma/v2-migration-tool/cmd/migration-tool@latest up` from `migrations-dir`, deliberately tracking the latest migration tool. The caller job owns triggers, the same-repository pull-request guard, and `needs`.
+
+Changing shared CI behavior requires a governed finding, two-repository validation, and an approved reusable-actions release PR.
 
 You can use custom docker build instructions with a `ci-docker-build` make target:
 
