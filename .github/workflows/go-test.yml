@@ -4,22 +4,22 @@ on:
   workflow_call:
     inputs:
       app-client-id:
-        description: GitHub App client ID used to read private Go modules.
-        required: true
+        description: GitHub App client ID used to read private Go modules. Required only when module-allowlist is set.
+        required: false
         type: string
       module-allowlist:
-        description: Newline-delimited private module repositories for the GitHub App token.
-        required: true
+        description: Newline-delimited private module repositories for the GitHub App token. Omit for public-only repositories — no token is created and no private-module access is configured.
+        required: false
         type: string
       translate:
-        description: Run make translate before tests.
+        description: Merge goi18n translation files before tests.
         default: false
         required: false
         type: boolean
     secrets:
       FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
-        description: GitHub App private key used to read private Go modules.
-        required: true
+        description: GitHub App private key used to read private Go modules. Required only when module-allowlist is set.
+        required: false
 
 permissions:
   contents: read
@@ -32,6 +32,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Create private-module token
+        if: inputs.module-allowlist != ''
         id: module-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
@@ -47,6 +48,7 @@ jobs:
           cache: true
 
       - name: Configure private module access
+        if: inputs.module-allowlist != ''
         shell: bash
         env:
           GH_TOKEN: ${{ steps.module-token.outputs.token }}
@@ -65,7 +67,9 @@ jobs:
       - name: Merge translations
         if: inputs.translate
         shell: bash
-        run: make translate
+        run: |
+          rm -f configs/locales/en-gb.all.json
+          go tool goi18n merge -sourceLanguage en-GB -format json -outdir configs/locales configs/locales/en-gb.*.json
 
       - name: Run tests
         shell: bash
