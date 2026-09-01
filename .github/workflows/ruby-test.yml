@@ -81,9 +81,22 @@ jobs:
         shell: bash
         run: |
           # SimpleCov's default formatter writes .last_run.json next to the HTML
-          # report (coverage/ under the caller repo checkout).
+          # report (coverage/ under the caller repo checkout). CI_ARTIFACTS is not
+          # consulted by the immutable spec-helpers gem; it is used only as the
+          # post-test copy destination below (ADR-0006).
           COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
           echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Copy coverage report to artifacts
+        if: always()
+        shell: bash
+        run: |
+          # The spec-helpers gem is immutable (ADR-0006): SimpleCov writes to
+          # coverage/ under the checkout, so redirect by copy into CI_ARTIFACTS.
+          if [ -d coverage ]; then
+            mkdir -p "$CI_ARTIFACTS"
+            cp -rv coverage "$CI_ARTIFACTS/coverage"
+          fi
 
       - name: Upload test results
         if: always()
