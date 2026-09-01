@@ -123,6 +123,17 @@ jobs:
             echo "failed to PUT $API/$1 after 60s" >&2
             return 1
           }
+          # Bindings are POST-only on the management API (PUT → 405).
+          post() {
+            for attempt in $(seq 1 12); do
+              if curl -sf -u "$AUTH" -X POST -H 'content-type: application/json' -d "$2" "$API/$1"; then
+                return 0
+              fi
+              sleep 5
+            done
+            echo "failed to POST $API/$1 after 60s" >&2
+            return 1
+          }
 
           echo 'declaring main exchange'
           put 'exchanges/%2F/fatsoma_test' '{"type":"topic","durable":true}'
@@ -140,7 +151,7 @@ jobs:
           put 'policies/%2F/dlx' '{"pattern":"^(api|service|user_interface)_","definition":{"dead-letter-exchange":"fatsoma_test_dlx"},"priority":0,"apply-to":"queues"}'
 
           echo 'declaring dead letter binding'
-          put 'bindings/%2F/e/fatsoma_test_dlx/q/retry' '{"routing_key":"#"}'
+          post 'bindings/%2F/e/fatsoma_test_dlx/q/retry' '{"routing_key":"#"}'
 
           echo 'message queue configured for test'
 
