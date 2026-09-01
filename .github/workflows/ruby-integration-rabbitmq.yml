@@ -15,11 +15,6 @@ on:
         description: Newline-delimited private gem repositories the GitHub App token may fetch. Omit for public-only Gemfiles — no token is created and no private access is configured.
         required: false
         type: string
-      rabbitmq-config-script:
-        description: In-repo script that declares the test exchanges/queues/policies (invoked via bash). v2-queue's lives at .circleci/config_rabbitmq.sh until its Phase 4 CircleCI removal — move it (e.g. scripts/) or inline it here when that lands.
-        required: false
-        type: string
-        default: ./.circleci/config_rabbitmq.sh
     secrets:
       FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
         description: GitHub App private key used to read private gem repositories. Required only when gem-allowlist is set.
@@ -49,10 +44,9 @@ jobs:
       WORKERS_MESSAGE_QUEUE_RETRY_LIMIT: "10"
     services:
       # Management variant (differs from the Go convention of plain
-      # rabbitmq:4.2.2): v2-queue's config script downloads the rabbitmqadmin
-      # CLI from port 15672 to declare the test exchanges/queues/policies.
-      # Health check makes GHA wait for the broker before steps run (CircleCI
-      # used dockerize -wait tcp://localhost:5672).
+      # rabbitmq:4.2.2): broker configuration below uses the management HTTP
+      # API on 15672. Health check makes GHA wait for the broker before steps
+      # run (CircleCI used dockerize -wait tcp://localhost:5672).
       rabbitmq:
         image: rabbitmq:4.2.2-management-alpine
         ports:
@@ -103,9 +97,40 @@ jobs:
             cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
           done
 
-      - name: Configure RabbitMQ
+      # Prescribed broker topology (not caller-configurable): the same setup
+      # as `message_queue:configure` for the test environment in
+      # v2-tools (docker/README.md "Create queues"), reimplemented over the
+      # management HTTP API so CI does not depend on v2-tools/docker-tools.
+      # Matches v2-queue's CircleCI config_rabbitmq.sh, minus the ha-mode
+      # policies (meaningless on a single ephemeral node and rejected by
+      # RabbitMQ 4.x), and with PUT-if-absent so reruns are idempotent.
+      - name: Configure RabbitMQ broker
         shell: bash
-        run: bash "${{ inputs.rabbitmq-config-script }}"
+        run: |
+          set -euo pipefail
+          API=http://localhost:15672/api
+          AUTH="guest:guest"
+          put() { curl -sf -u "$AUTH" -X PUT -H 'content-type: application/json' -d "$2" "$API/$1" | (grep . || true); }
+
+          echo 'declaring main exchange'
+          put 'exchanges/%2F/fatsoma_test' '{"type":"topic","durable":true}'
+
+          echo 'declaring dead letter exchange'
+          put 'exchanges/%2F/fatsoma_test_dlx' '{"type":"fanout","durable":true}'
+
+          echo 'declaring retry queue'
+          put 'queues/%2F/retry' '{"durable":true,"auto_delete":false}'
+
+          echo 'declaring lazy retry policy'
+          put 'policies/%2F/retry-lazy' '{"pattern":"^retry$","definition":{"queue-mode":"lazy"},"priority":0,"apply-to":"queues"}'
+
+          echo 'declaring dead letter policy'
+          put 'policies/%2F/dlx' '{"pattern":"^(api|service|user_interface)_","definition":{"dead-letter-exchange":"fatsoma_test_dlx"},"priority":0,"apply-to":"queues"}'
+
+          echo 'declaring dead letter binding'
+          put 'bindings/%2F/e/fatsoma_test_dlx/q/retry' '{}'
+
+          echo 'message queue configured for test'
 
       - name: Run specs
         shell: bash
