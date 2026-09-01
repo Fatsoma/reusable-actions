@@ -32,12 +32,9 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
-      # CIRCLE_ARTIFACTS is intentional: fatsoma_spec_helpers' coverage.rb CircleCI
-      # starter keys off it to redirect SimpleCov HTML into the artifacts dir.
-      # Zero gem change; see fatsoma-cohort-governance ADR-0004.
       CONFIG_PATH: /home/runner/v2-fatsoma-settings
       COVERAGE: "true"
-      CIRCLE_ARTIFACTS: /home/runner/artifacts
+      CI_ARTIFACTS: /home/runner/artifacts
       TEST_RESULTS: /home/runner/test-results
       PAGER: cat
     steps:
@@ -69,7 +66,7 @@ jobs:
       - name: Distribute settings env files
         shell: bash
         run: |
-          mkdir -p "$CONFIG_PATH" "$CIRCLE_ARTIFACTS" "$TEST_RESULTS"
+          mkdir -p "$CONFIG_PATH" "$CI_ARTIFACTS" "$TEST_RESULTS"
           SETTINGS_DIR=$(bundle info --path fatsoma-settings)
           for env in test development local; do
             cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
@@ -78,6 +75,15 @@ jobs:
       - name: Run specs
         shell: bash
         run: bundle exec rspec --format json --out $TEST_RESULTS/rspec/results.json --format documentation spec
+
+      - name: Write coverage summary
+        if: success()
+        shell: bash
+        run: |
+          # SimpleCov's default formatter writes .last_run.json next to the HTML
+          # report (coverage/ under the caller repo checkout).
+          COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
+          echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload test results
         if: always()

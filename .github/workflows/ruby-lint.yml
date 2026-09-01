@@ -7,11 +7,6 @@ on:
         description: Ruby version for setup-ruby. Defaults to the caller's .ruby-version.
         required: false
         type: string
-      copy-checker-configs:
-        description: Copy the bundled fatsoma_spec_helpers checkers/ dotfiles (including .rubocop.yml) into $HOME before linting. Needed only by repos with no in-repo .rubocop.yml (v2-spec-helpers itself); rubocop falls back to $HOME/.rubocop.yml when no project config exists.
-        default: false
-        required: false
-        type: boolean
       app-client-id:
         description: GitHub App client ID used to read private gem repositories. Required only when gem-allowlist is set.
         required: false
@@ -64,11 +59,6 @@ jobs:
         with:
           ruby-version: ${{ inputs.ruby-version != '' && inputs.ruby-version || 'default' }}
           bundler-cache: true
-
-      - name: Copy checker configs
-        if: inputs.copy-checker-configs
-        shell: bash
-        run: cp -rv "$(bundle info --path fatsoma_spec_helpers)/checkers/." "$HOME/"
 
       - name: Resolve diff range
         id: range

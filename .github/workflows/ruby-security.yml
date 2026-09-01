@@ -1,4 +1,4 @@
-name: Ruby Vulnerabilities
+name: Ruby Security
 
 on:
   workflow_call:
@@ -27,8 +27,8 @@ permissions:
   contents: read
 
 jobs:
-  vulnerabilities:
-    name: Vulnerabilities
+  security:
+    name: Security
     runs-on: ubuntu-24.04
     env:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
@@ -58,6 +58,11 @@ jobs:
           ruby-version: ${{ inputs.ruby-version != '' && inputs.ruby-version || 'default' }}
           bundler-cache: true
 
+      # Dependency CVE scanning is intentionally absent: Dependabot alerts are
+      # enabled on the cohort and cover it (owner decision 2026-09-01).
+      # bundler-audit duplicated that signal. Brakeman stays — Dependabot does
+      # no static analysis of Rails app code.
+
       - name: Rails application check
         id: rails-check
         shell: bash
@@ -65,13 +70,6 @@ jobs:
           if [ -d app ]; then
             echo "rails_app=true" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Bundler Audit
-        shell: bash
-        run: |
-          mkdir -p artifacts
-          gem install bundler-audit --no-document
-          bundle audit check --update | tee artifacts/bundler-audit.txt
 
       - name: Brakeman
         if: steps.rails-check.outputs.rails_app == 'true'
@@ -85,6 +83,11 @@ jobs:
           echo "gem 'brakeman', '$BRAKEMAN_VERSION'" >> Gemfile.brakeman
           bundle install --gemfile Gemfile.brakeman
           bundle exec --gemfile Gemfile.brakeman brakeman --exit-on-warn -o artifacts/brakeman.html
+
+      - name: Skip notice
+        if: steps.rails-check.outputs.rails_app != 'true'
+        shell: bash
+        run: echo "Not a Rails application — nothing to scan (dependency CVEs are covered by Dependabot)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload security artifacts
         if: always()
