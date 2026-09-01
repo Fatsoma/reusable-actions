@@ -48,11 +48,13 @@ jobs:
       WORKERS_MESSAGE_QUEUE_RETRY_MULTIPLIER: "2"
       WORKERS_MESSAGE_QUEUE_RETRY_LIMIT: "10"
     services:
-      # Management image: 15672 serves the rabbitmqadmin CLI the config
-      # script downloads. Health check makes GHA wait for the broker before
-      # steps run (CircleCI used dockerize -wait tcp://localhost:5672).
+      # Management variant (differs from the Go convention of plain
+      # rabbitmq:4.2.2): v2-queue's config script downloads the rabbitmqadmin
+      # CLI from port 15672 to declare the test exchanges/queues/policies.
+      # Health check makes GHA wait for the broker before steps run (CircleCI
+      # used dockerize -wait tcp://localhost:5672).
       rabbitmq:
-        image: rabbitmq:3.12-management-alpine
+        image: rabbitmq:4.2.2-management-alpine
         ports:
           - 5672:5672
           - 15672:15672
@@ -60,7 +62,7 @@ jobs:
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 6
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -124,6 +126,10 @@ jobs:
             mkdir -p "$CI_ARTIFACTS"
             cp -rv coverage "$CI_ARTIFACTS/coverage"
           fi
+
+      - name: Show RabbitMQ logs on failure
+        if: failure()
+        run: docker logs "${{ job.services.rabbitmq.id }}" || true
 
       - name: Upload test results
         if: always()
