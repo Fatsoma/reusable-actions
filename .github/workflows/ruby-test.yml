@@ -2,28 +2,95 @@ name: Ruby Test
 
 on:
   workflow_call:
+    inputs:
+      ruby-version:
+        description: Ruby version for setup-ruby. Defaults to the caller's .ruby-version.
+        required: false
+        type: string
+      app-client-id:
+        description: GitHub App client ID used to read private gem repositories. Required only when gem-allowlist is set.
+        required: false
+        type: string
+      gem-allowlist:
+        description: Newline-delimited private gem repositories the GitHub App token may fetch. Omit for public-only Gemfiles — no token is created and no private access is configured.
+        required: false
+        type: string
     secrets:
+      FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
+        description: GitHub App private key used to read private gem repositories. Required only when gem-allowlist is set.
+        required: false
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM:
-        description: "The GitHub token to use for private gem sources"
-        required: true
+        description: Token for rubygems.pkg.github.com gem sources. Required only for Gemfiles sourcing from GitHub Packages.
+        required: false
+
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Test
+    runs-on: ubuntu-24.04
     env:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
-    services:
-      redis:
-        image: redis
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
+      # CIRCLE_ARTIFACTS is intentional: fatsoma_spec_helpers' coverage.rb CircleCI
+      # starter keys off it to redirect SimpleCov HTML into the artifacts dir.
+      # Zero gem change; see fatsoma-cohort-governance ADR-0004.
+      CONFIG_PATH: /home/runner/v2-fatsoma-settings
+      COVERAGE: "true"
+      CIRCLE_ARTIFACTS: /home/runner/artifacts
+      TEST_RESULTS: /home/runner/test-results
+      PAGER: cat
     steps:
-      - uses: actions/checkout@v4
-      - uses: ruby/setup-ruby@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Create private-gem token
+        if: inputs.gem-allowlist != ''
+        id: gem-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY }}
+          owner: Fatsoma
+          repositories: ${{ inputs.gem-allowlist }}
+          permission-contents: read
+
+      - name: Configure private gem access
+        if: inputs.gem-allowlist != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.gem-token.outputs.token }}
+        run: git config --global url."https://x-access-token:${GH_TOKEN}@github.com/Fatsoma/".insteadOf "git@github.com:Fatsoma/"
+
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: ${{ inputs.ruby-version != '' && inputs.ruby-version || 'default' }}
           bundler-cache: true
-      - run: bundle exec rspec
+
+      - name: Distribute settings env files
+        shell: bash
+        run: |
+          mkdir -p "$CONFIG_PATH" "$CIRCLE_ARTIFACTS" "$TEST_RESULTS"
+          SETTINGS_DIR=$(bundle info --path fatsoma-settings)
+          for env in test development local; do
+            cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
+          done
+
+      - name: Run specs
+        shell: bash
+        run: bundle exec rspec --format json --out $TEST_RESULTS/rspec/results.json --format documentation spec
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results
+          path: /home/runner/test-results/
+          if-no-files-found: ignore
+
+      - name: Upload coverage + artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage
+          path: /home/runner/artifacts/
+          if-no-files-found: ignore

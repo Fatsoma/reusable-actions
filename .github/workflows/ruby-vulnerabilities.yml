@@ -2,53 +2,94 @@ name: Ruby Vulnerabilities
 
 on:
   workflow_call:
+    inputs:
+      ruby-version:
+        description: Ruby version for setup-ruby. Defaults to the caller's .ruby-version.
+        required: false
+        type: string
+      app-client-id:
+        description: GitHub App client ID used to read private gem repositories. Required only when gem-allowlist is set.
+        required: false
+        type: string
+      gem-allowlist:
+        description: Newline-delimited private gem repositories the GitHub App token may fetch. Omit for public-only Gemfiles — no token is created and no private access is configured.
+        required: false
+        type: string
     secrets:
+      FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
+        description: GitHub App private key used to read private gem repositories. Required only when gem-allowlist is set.
+        required: false
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM:
-        description: "The GitHub token to use for private gem sources"
-        required: true
+        description: Token for rubygems.pkg.github.com gem sources. Required only for Gemfiles sourcing from GitHub Packages.
+        required: false
+
+permissions:
+  contents: read
 
 jobs:
   vulnerabilities:
-    runs-on: ubuntu-latest
+    name: Vulnerabilities
+    runs-on: ubuntu-24.04
     env:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: ruby/setup-ruby@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Create private-gem token
+        if: inputs.gem-allowlist != ''
+        id: gem-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY }}
+          owner: Fatsoma
+          repositories: ${{ inputs.gem-allowlist }}
+          permission-contents: read
+
+      - name: Configure private gem access
+        if: inputs.gem-allowlist != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.gem-token.outputs.token }}
+        run: git config --global url."https://x-access-token:${GH_TOKEN}@github.com/Fatsoma/".insteadOf "git@github.com:Fatsoma/"
+
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: ${{ inputs.ruby-version != '' && inputs.ruby-version || 'default' }}
           bundler-cache: true
 
       - name: Rails application check
         id: rails-check
+        shell: bash
         run: |
-          if [ -f config/application.rb ]; then
-            echo "RAILS_APP=true" >> "$GITHUB_OUTPUT"
+          if [ -d app ]; then
+            echo "rails_app=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Bundler Audit
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          gem install bundler-audit --no-document
+          bundle audit check --update | tee artifacts/bundler-audit.txt
+
       - name: Brakeman
+        if: steps.rails-check.outputs.rails_app == 'true'
+        shell: bash
         env:
-          RAILS_APP: ${{ steps.rails-check.outputs.RAILS_APP }}
           # Brakeman has dropped support for Ruby 2, so we need to use an older version until we upgrade Ruby
           BRAKEMAN_VERSION: ~> 5.0
         run: |
-          if [ -z "$RAILS_APP" ]; then
-            echo "Not a Rails application"
-            exit 0
-          fi
-
+          mkdir -p artifacts
           echo "source 'https://rubygems.org'" > Gemfile.brakeman
-
-          if [ -n "$BRAKEMAN_VERSION" ]; then
-            echo "gem 'brakeman', '$BRAKEMAN_VERSION'" >> Gemfile.brakeman
-          else
-            echo "gem 'brakeman'" >> Gemfile.brakeman
-          fi
-
+          echo "gem 'brakeman', '$BRAKEMAN_VERSION'" >> Gemfile.brakeman
           bundle install --gemfile Gemfile.brakeman
+          bundle exec --gemfile Gemfile.brakeman brakeman --exit-on-warn -o artifacts/brakeman.html
 
-          bundle exec --gemfile Gemfile.brakeman brakeman --exit-on-warn
-
-      - name: Bundler Audit
-        run: |
-          gem install bundler-audit
-          bundle audit check --update
+      - name: Upload security artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-scan-results
+          path: artifacts/
+          if-no-files-found: ignore
