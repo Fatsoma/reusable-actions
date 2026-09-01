@@ -1,37 +1,43 @@
-# github-actions
+# reusable-actions
 
-Public repository for reusable github actions
+Public repository for reusable GitHub Actions workflows.
 
-As is customary for GitHub Actions, we provide release tags for you to reference in your repository's workflow files. The `v1` tag is a moving tag that will always apply to the latest version 1 train release.
+Callers pin every reusable workflow to the full immutable Git commit SHA resolved from a release tag. The SHA fixes the exact code executed. Replace `REUSABLE_ACTIONS_SHA` in the examples with the commit SHA of the release tag you want, and add the tag name as a trailing comment, for example `@0123456789abcdef... # v2`. [Dependabot updates for GitHub Actions](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/auto-update-actions) can then propose bumps while reviewers see the human-readable release version.
 
 ## Usage
 
 ```yml
 jobs:
   ecr-push:
-    uses: Fatsoma/reusable-actions/.github/workflows/ecr-push.yml@v1
+    uses: Fatsoma/reusable-actions/.github/workflows/ecr-push.yml@REUSABLE_ACTIONS_SHA # v1
     with:
       aws-region: us-west-1
       ecr-repository: ${{ github.event.repository.name }}
       environment: staging
       image-tag: latest
 
-  ruby-gem-publish:
-    on:
-      push:
-        branches: main
-    uses: Fatsoma/reusable-actions/.github/workflows/ruby-gem-publish.yml@v1
-    with:
-      gem-name: example-gem
-
   ruby-lint:
-    uses: Fatsoma/reusable-actions/.github/workflows/ruby-lint.yml@v1
+    uses: Fatsoma/reusable-actions/.github/workflows/ruby-lint.yml@REUSABLE_ACTIONS_SHA # v2
 
-  ruby-vulnerabilities:
-    uses: Fatsoma/reusable-actions/.github/workflows/ruby-vulnerabilities.yml@v1
+  ruby-security:
+    uses: Fatsoma/reusable-actions/.github/workflows/ruby-security.yml@REUSABLE_ACTIONS_SHA # v2
 
   ruby-test:
-    uses: Fatsoma/reusable-actions/.github/workflows/ruby-test.yml@v1
+    uses: Fatsoma/reusable-actions/.github/workflows/ruby-test.yml@REUSABLE_ACTIONS_SHA # v2
+```
+
+`ruby-gem-publish` is triggered on push to `main` rather than on `workflow_call` from a job:
+
+```yml
+on:
+  push:
+    branches: main
+
+jobs:
+  ruby-gem-publish:
+    uses: Fatsoma/reusable-actions/.github/workflows/ruby-gem-publish.yml@REUSABLE_ACTIONS_SHA # v1
+    with:
+      gem-name: example-gem
 ```
 
 You can use custom docker build instructions with a `ci-docker-build` make target:
@@ -43,3 +49,67 @@ CI_DOCKER_IMAGE=
 ci-docker-build:
 	docker build --tag "$(CI_DOCKER_IMAGE)" .
 ```
+
+## Ruby CI
+
+The Ruby CI workflows standardize `Lint`, `Test`, and `Security` jobs for the Fatsoma Ruby cohort migrating from CircleCI. Each call uses an immutable `REUSABLE_ACTIONS_SHA`. Test result and coverage data come from rspec's built-in JSON formatter and SimpleCov's default `.last_run.json` — no extra reporting gems.
+
+A minimal repository — public gems only — needs no inputs at all:
+
+```yml
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: Fatsoma/reusable-actions/.github/workflows/ruby-lint.yml@REUSABLE_ACTIONS_SHA # v2
+
+  test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: Fatsoma/reusable-actions/.github/workflows/ruby-test.yml@REUSABLE_ACTIONS_SHA # v2
+
+  security:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: Fatsoma/reusable-actions/.github/workflows/ruby-security.yml@REUSABLE_ACTIONS_SHA # v2
+```
+
+The `if:` guard on each caller job skips the job for pull requests opened from forks; without it, the same change runs twice on pull requests from branches inside the repository.
+
+### Private gems
+
+If the `Gemfile` git-sources private Fatsoma gems, pass the GitHub App credentials and a newline-delimited allowlist of the private repositories to read. Both `app-client-id` and `gem-allowlist` are required together; when `gem-allowlist` is omitted, no token is created and no private-gem access is configured.
+
+```yml
+  test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: Fatsoma/reusable-actions/.github/workflows/ruby-test.yml@REUSABLE_ACTIONS_SHA # v2
+    with:
+      app-client-id: ${{ vars.FATSOMA_DEPENDENCIES_APP_CLIENT_ID }}
+      gem-allowlist: |
+        v2-spec-helpers
+        rubocop-fatsoma-config
+    secrets: inherit
+```
+
+`secrets: inherit` passes the caller repository's secrets to the reusable workflow, including `FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY` when it is configured. Repositories without private gem dependencies can omit `secrets: inherit` entirely.
+
+The workflow rewrites `git@github.com:Fatsoma/` URLs to token-authenticated HTTPS before `bundle install`; `Gemfile.lock` keeps recording the SSH remotes and needs no changes.
+
+### Inputs
+
+All three Ruby workflows accept the same optional inputs:
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `ruby-version` | `.ruby-version` | Ruby version for setup-ruby. |
+| `app-client-id` | — | GitHub App client ID for private gem access. Required with `gem-allowlist`. |
+| `gem-allowlist` | — | Newline-delimited private gem repositories for the GitHub App token. |
+
+### What each workflow does
+
+`ruby-lint.yml` checks out with full history, then runs rubocop with `--fail-level convention --force-exclusion` on the Ruby files changed in the pull request (merge-base of the base branch) or push (`github.event.before`); when no base resolves it lints the whole repo. Callers must carry their own `.rubocop.yml`.
+
+`ruby-test.yml` distributes the bundled fatsoma-settings gem's `.env.circle` into `$CONFIG_PATH/.env.{test,development,local}` (mirroring CircleCI's settings step), then runs `bundle exec rspec --format json --format documentation spec`, uploading the JSON test results and the coverage/artifacts directory. With `COVERAGE=true` set by the workflow, SimpleCov writes its HTML report and `.last_run.json`; the workflow appends `total: **N%**` to the job's step summary.
+
+`ruby-security.yml` runs brakeman (`~> 5.0`, pinned for Ruby 2.7) with `--exit-on-warn` for Rails applications (detected by the presence of `app/`), uploading the HTML report as `security-scan-results`. Dependency CVE scanning is deliberately absent: Dependabot alerts cover it. Non-Rails callers can omit the security job entirely.
