@@ -67,7 +67,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$CONFIG_PATH" "$CI_ARTIFACTS" "$TEST_RESULTS"
-          SETTINGS_DIR=$(bundle info --path fatsoma-settings)
+          # Skipped for callers that don't depend on fatsoma-settings
+          # (v2-spec-helpers — the gem itself; discovery 008).
+          if ! SETTINGS_DIR=$(bundle info --path fatsoma-settings 2>/dev/null); then
+            echo "fatsoma-settings not in bundle; skipping settings distribution"
+            exit 0
+          fi
           for env in test development local; do
             cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
           done
