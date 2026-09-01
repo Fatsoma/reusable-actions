@@ -1,4 +1,4 @@
-name: Ruby Test
+name: Ruby Test (RabbitMQ)
 
 on:
   workflow_call:
@@ -28,6 +28,8 @@ permissions:
 
 jobs:
   test:
+    # Job name stays "Test" so a repo switching from ruby-test.yml keeps the
+    # same required check name (Go precedent: per-profile files, one job each).
     name: Test
     runs-on: ubuntu-24.04
     env:
@@ -37,6 +39,16 @@ jobs:
       CI_ARTIFACTS: /home/runner/artifacts
       TEST_RESULTS: /home/runner/test-results
       PAGER: cat
+    services:
+      rabbitmq:
+        image: rabbitmq:4.2.2-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -85,10 +97,6 @@ jobs:
         if: success()
         shell: bash
         run: |
-          # SimpleCov's default formatter writes .last_run.json next to the HTML
-          # report (coverage/ under the caller repo checkout). CI_ARTIFACTS is not
-          # consulted by the immutable spec-helpers gem; it is used only as the
-          # post-test copy destination below (ADR-0006).
           COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
           echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
 
@@ -96,12 +104,14 @@ jobs:
         if: always()
         shell: bash
         run: |
-          # The spec-helpers gem is immutable (ADR-0006): SimpleCov writes to
-          # coverage/ under the checkout, so redirect by copy into CI_ARTIFACTS.
           if [ -d coverage ]; then
             mkdir -p "$CI_ARTIFACTS"
             cp -rv coverage "$CI_ARTIFACTS/coverage"
           fi
+
+      - name: Show RabbitMQ logs on failure
+        if: failure()
+        run: docker logs "${{ job.services.rabbitmq.id }}" || true
 
       - name: Upload test results
         if: always()

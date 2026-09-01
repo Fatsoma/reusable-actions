@@ -2,44 +2,104 @@ name: Ruby Lint
 
 on:
   workflow_call:
+    inputs:
+      ruby-version:
+        description: Ruby version for setup-ruby. Defaults to the caller's .ruby-version.
+        required: false
+        type: string
+      app-client-id:
+        description: GitHub App client ID used to read private gem repositories. Required only when gem-allowlist is set.
+        required: false
+        type: string
+      gem-allowlist:
+        description: Newline-delimited private gem repositories the GitHub App token may fetch. Omit for public-only Gemfiles — no token is created and no private access is configured.
+        required: false
+        type: string
     secrets:
+      FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
+        description: GitHub App private key used to read private gem repositories. Required only when gem-allowlist is set.
+        required: false
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM:
-        description: "The GitHub token to use for private gem sources"
-        required: true
+        description: Token for rubygems.pkg.github.com gem sources. Required only for Gemfiles sourcing from GitHub Packages.
+        required: false
+
+permissions:
+  contents: read
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    name: Lint
+    runs-on: ubuntu-24.04
     env:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
-
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: ruby/setup-ruby@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          fetch-depth: 0
+
+      - name: Create private-gem token
+        if: inputs.gem-allowlist != ''
+        id: gem-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY }}
+          owner: Fatsoma
+          repositories: ${{ inputs.gem-allowlist }}
+          permission-contents: read
+
+      - name: Configure private gem access
+        if: inputs.gem-allowlist != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.gem-token.outputs.token }}
+        run: git config --global url."https://x-access-token:${GH_TOKEN}@github.com/Fatsoma/".insteadOf "git@github.com:Fatsoma/"
+
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: ${{ inputs.ruby-version != '' && inputs.ruby-version || 'default' }}
           bundler-cache: true
 
-      - name: Get base and head
-        id: base-head
+      - name: Resolve diff range
+        id: range
+        shell: bash
         run: |
-          git fetch origin ${{ github.base_ref }} ${{ github.event.pull_request.head.ref }}
-          echo "FORK_POINT=$(git show-branch --merge-base "origin/${{ github.base_ref }}" "origin/${{ github.event.pull_request.head.ref }}")" >> "$GITHUB_OUTPUT"
-          echo "LATEST_COMMIT_IN_PR=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          # pull_request: fork point of base and head. push: previous ref tip (event before).
+          # Falls back to full-repo lint when no base can be resolved (e.g. branch creation push).
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD || true)
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          if [ -n "$BASE" ] && git cat-file -e "$BASE" 2>/dev/null; then
+            echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Get changed Ruby files
-        env:
-          FORK_POINT: ${{ steps.base-head.outputs.FORK_POINT }}
-          LATEST_COMMIT_IN_PR: ${{ steps.base-head.outputs.LATEST_COMMIT_IN_PR }}
-          RUBY_PATTERN: (\.r[bu]|\.gemspec|\.podspec|\.jbuilder|\.rake|Gemfile|Rakefile|Capfile|Guardfile|Podfile|Thorfile|Vagrantfile)$
         id: changed-files
+        shell: bash
+        env:
+          BASE: ${{ steps.range.outputs.base }}
         run: |
-          echo "CHANGED_RUBY_FILES=$(git diff --diff-filter=ACMR --name-only $FORK_POINT $LATEST_COMMIT_IN_PR | grep -E $RUBY_PATTERN | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+          RUBY_PATTERN='(\.r[bu]|\.gemspec|\.podspec|\.jbuilder|\.rake|Gemfile|Rakefile|Capfile|Guardfile|Podfile|Thorfile|Vagrantfile)$'
+          if [ -n "$BASE" ]; then
+            FILES=$(git diff --diff-filter=ACMR --name-only "$BASE" HEAD | grep -E "$RUBY_PATTERN" | tr '\n' ' ' || true)
+          else
+            FILES=$(git ls-files | grep -E "$RUBY_PATTERN" | tr '\n' ' ' || true)
+          fi
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
 
       - name: Rubocop on changed files
+        shell: bash
         env:
-          CHANGED_RUBY_FILES: ${{ steps.changed-files.outputs.CHANGED_RUBY_FILES }}
+          CHANGED_RUBY_FILES: ${{ steps.changed-files.outputs.files }}
         run: |
+          bundle exec rubocop --version
           if [ -n "$CHANGED_RUBY_FILES" ]; then
-            bundle exec rubocop $CHANGED_RUBY_FILES
+            bundle exec rubocop --fail-level convention --force-exclusion $CHANGED_RUBY_FILES
+          else
+            echo "No changed files"
           fi

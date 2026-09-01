@@ -1,4 +1,4 @@
-name: Ruby Test
+name: Ruby Test (Postgres + Redis)
 
 on:
   workflow_call:
@@ -13,6 +13,10 @@ on:
         type: string
       gem-allowlist:
         description: Newline-delimited private gem repositories the GitHub App token may fetch. Omit for public-only Gemfiles — no token is created and no private access is configured.
+        required: false
+        type: string
+      db-setup:
+        description: "Rails DB preparation before specs: structure-load (db:create db:structure:load), schema-load (db:schema:load), or test-prepare (db:test:prepare — analytics/order variant). Omit when the suite needs no DB setup."
         required: false
         type: string
     secrets:
@@ -37,6 +41,32 @@ jobs:
       CI_ARTIFACTS: /home/runner/artifacts
       TEST_RESULTS: /home/runner/test-results
       PAGER: cat
+    services:
+      # POSTGRES_HOST_AUTH_METHOD=trust: the CircleCI cimg/postgres image
+      # allowed local connections as any role (specs connect as the postgres
+      # superuser, e.g. v2-fatsoma-database-tools' spec/support/config.yml)
+      # while POSTGRES_USER=fatsoma is the provisioned role for app code.
+      postgres:
+        image: cimg/postgres:17.9
+        env:
+          POSTGRES_USER: fatsoma
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:3-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -77,6 +107,23 @@ jobs:
             cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
           done
 
+      # Service readiness is gated by the container health checks above
+      # (CircleCI used dockerize -wait with a 1m timeout per port).
+      - name: Prepare database
+        if: inputs.db-setup == 'structure-load'
+        shell: bash
+        run: RAILS_ENV=test bundle exec rake db:create db:structure:load
+
+      - name: Prepare database (schema)
+        if: inputs.db-setup == 'schema-load'
+        shell: bash
+        run: RAILS_ENV=test bundle exec rake db:schema:load
+
+      - name: Prepare database (test-prepare)
+        if: inputs.db-setup == 'test-prepare'
+        shell: bash
+        run: RAILS_ENV=test bundle exec rake db:test:prepare
+
       - name: Run specs
         shell: bash
         run: bundle exec rspec --format json --out $TEST_RESULTS/rspec/results.json --format documentation spec
@@ -85,10 +132,6 @@ jobs:
         if: success()
         shell: bash
         run: |
-          # SimpleCov's default formatter writes .last_run.json next to the HTML
-          # report (coverage/ under the caller repo checkout). CI_ARTIFACTS is not
-          # consulted by the immutable spec-helpers gem; it is used only as the
-          # post-test copy destination below (ADR-0006).
           COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
           echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
 
@@ -96,12 +139,18 @@ jobs:
         if: always()
         shell: bash
         run: |
-          # The spec-helpers gem is immutable (ADR-0006): SimpleCov writes to
-          # coverage/ under the checkout, so redirect by copy into CI_ARTIFACTS.
           if [ -d coverage ]; then
             mkdir -p "$CI_ARTIFACTS"
             cp -rv coverage "$CI_ARTIFACTS/coverage"
           fi
+
+      - name: Show Postgres logs on failure
+        if: failure()
+        run: docker logs "${{ job.services.postgres.id }}" || true
+
+      - name: Show Redis logs on failure
+        if: failure()
+        run: docker logs "${{ job.services.redis.id }}" || true
 
       - name: Upload test results
         if: always()

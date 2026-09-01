@@ -1,4 +1,4 @@
-name: Ruby Test
+name: Ruby Integration (RabbitMQ)
 
 on:
   workflow_call:
@@ -27,16 +27,36 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test
+  integration:
+    name: Integration
     runs-on: ubuntu-24.04
     env:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
       CONFIG_PATH: /home/runner/v2-fatsoma-settings
       COVERAGE: "true"
+      INTEGRATION: "true"
       CI_ARTIFACTS: /home/runner/artifacts
       TEST_RESULTS: /home/runner/test-results
       PAGER: cat
+      # Retry policy under test — mirrors the CircleCI integration job env.
+      WORKERS_MESSAGE_QUEUE_RETRY_BASE: "1"
+      WORKERS_MESSAGE_QUEUE_RETRY_MULTIPLIER: "2"
+      WORKERS_MESSAGE_QUEUE_RETRY_LIMIT: "10"
+    services:
+      # Management variant (differs from the Go convention of plain
+      # rabbitmq:4.2.2): broker configuration below uses the management HTTP
+      # API on 15672. Health check makes GHA wait for the broker before steps
+      # run (CircleCI used dockerize -wait tcp://localhost:5672).
+      rabbitmq:
+        image: rabbitmq:4.2.2-management-alpine
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -77,18 +97,72 @@ jobs:
             cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
           done
 
+      # Prescribed broker topology (not caller-configurable): the same setup
+      # as `message_queue:configure` for the test environment in
+      # v2-tools (docker/README.md "Create queues"), reimplemented over the
+      # management HTTP API so CI does not depend on v2-tools/docker-tools.
+      # Matches v2-queue's CircleCI config_rabbitmq.sh, minus the ha-mode
+      # policies (meaningless on a single ephemeral node and rejected by
+      # RabbitMQ 4.x), and with PUT-if-absent so reruns are idempotent.
+      - name: Configure RabbitMQ broker
+        shell: bash
+        run: |
+          set -euo pipefail
+          API=http://localhost:15672/api
+          AUTH="guest:guest"
+          # PUT, retrying while the broker is still booting — the service
+          # health check gates the AMQP port; the management API on 15672 can
+          # answer 404/405 until the vhost is fully initialised.
+          put() {
+            for attempt in $(seq 1 12); do
+              if curl -sf -u "$AUTH" -X PUT -H 'content-type: application/json' -d "$2" "$API/$1"; then
+                return 0
+              fi
+              sleep 5
+            done
+            echo "failed to PUT $API/$1 after 60s" >&2
+            return 1
+          }
+          # Bindings are POST-only on the management API (PUT → 405).
+          post() {
+            for attempt in $(seq 1 12); do
+              if curl -sf -u "$AUTH" -X POST -H 'content-type: application/json' -d "$2" "$API/$1"; then
+                return 0
+              fi
+              sleep 5
+            done
+            echo "failed to POST $API/$1 after 60s" >&2
+            return 1
+          }
+
+          echo 'declaring main exchange'
+          put 'exchanges/%2F/fatsoma_test' '{"type":"topic","durable":true}'
+
+          echo 'declaring dead letter exchange'
+          put 'exchanges/%2F/fatsoma_test_dlx' '{"type":"fanout","durable":true}'
+
+          echo 'declaring retry queue'
+          put 'queues/%2F/retry' '{"durable":true,"auto_delete":false}'
+
+          echo 'declaring lazy retry policy'
+          put 'policies/%2F/retry-lazy' '{"pattern":"^retry$","definition":{"queue-mode":"lazy"},"priority":0,"apply-to":"queues"}'
+
+          echo 'declaring dead letter policy'
+          put 'policies/%2F/dlx' '{"pattern":"^(api|service|user_interface)_","definition":{"dead-letter-exchange":"fatsoma_test_dlx"},"priority":0,"apply-to":"queues"}'
+
+          echo 'declaring dead letter binding'
+          post 'bindings/%2F/e/fatsoma_test_dlx/q/retry' '{"routing_key":"#"}'
+
+          echo 'message queue configured for test'
+
       - name: Run specs
         shell: bash
-        run: bundle exec rspec --format json --out $TEST_RESULTS/rspec/results.json --format documentation spec
+        run: bundle exec rspec --format json --out $TEST_RESULTS/integration/results.json --format documentation spec
 
       - name: Write coverage summary
         if: success()
         shell: bash
         run: |
-          # SimpleCov's default formatter writes .last_run.json next to the HTML
-          # report (coverage/ under the caller repo checkout). CI_ARTIFACTS is not
-          # consulted by the immutable spec-helpers gem; it is used only as the
-          # post-test copy destination below (ADR-0006).
           COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
           echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
 
@@ -96,18 +170,20 @@ jobs:
         if: always()
         shell: bash
         run: |
-          # The spec-helpers gem is immutable (ADR-0006): SimpleCov writes to
-          # coverage/ under the checkout, so redirect by copy into CI_ARTIFACTS.
           if [ -d coverage ]; then
             mkdir -p "$CI_ARTIFACTS"
             cp -rv coverage "$CI_ARTIFACTS/coverage"
           fi
 
+      - name: Show RabbitMQ logs on failure
+        if: failure()
+        run: docker logs "${{ job.services.rabbitmq.id }}" || true
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: test-results
+          name: integration-results
           path: /home/runner/test-results/
           if-no-files-found: ignore
 
@@ -115,6 +191,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: coverage
+          name: integration-coverage
           path: /home/runner/artifacts/
           if-no-files-found: ignore

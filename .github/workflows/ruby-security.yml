@@ -1,4 +1,4 @@
-name: Ruby Test
+name: Ruby Security
 
 on:
   workflow_call:
@@ -27,16 +27,11 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test
+  security:
+    name: Security
     runs-on: ubuntu-24.04
     env:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
-      CONFIG_PATH: /home/runner/v2-fatsoma-settings
-      COVERAGE: "true"
-      CI_ARTIFACTS: /home/runner/artifacts
-      TEST_RESULTS: /home/runner/test-results
-      PAGER: cat
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -63,58 +58,47 @@ jobs:
           ruby-version: ${{ inputs.ruby-version != '' && inputs.ruby-version || 'default' }}
           bundler-cache: true
 
-      - name: Distribute settings env files
+      # Dependency CVE scanning is intentionally absent: Dependabot alerts are
+      # enabled on the cohort and cover it (owner decision 2026-09-01).
+      # bundler-audit duplicated that signal. Brakeman stays — Dependabot does
+      # no static analysis of Rails app code.
+
+      - name: Rails application check
+        id: rails-check
         shell: bash
         run: |
-          mkdir -p "$CONFIG_PATH" "$CI_ARTIFACTS" "$TEST_RESULTS"
-          # Skipped for callers that don't depend on fatsoma-settings
-          # (v2-spec-helpers — the gem itself; discovery 008).
-          if ! SETTINGS_DIR=$(bundle info --path fatsoma-settings 2>/dev/null); then
-            echo "fatsoma-settings not in bundle; skipping settings distribution"
-            exit 0
-          fi
-          for env in test development local; do
-            cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
-          done
-
-      - name: Run specs
-        shell: bash
-        run: bundle exec rspec --format json --out $TEST_RESULTS/rspec/results.json --format documentation spec
-
-      - name: Write coverage summary
-        if: success()
-        shell: bash
-        run: |
-          # SimpleCov's default formatter writes .last_run.json next to the HTML
-          # report (coverage/ under the caller repo checkout). CI_ARTIFACTS is not
-          # consulted by the immutable spec-helpers gem; it is used only as the
-          # post-test copy destination below (ADR-0006).
-          COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
-          echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Copy coverage report to artifacts
-        if: always()
-        shell: bash
-        run: |
-          # The spec-helpers gem is immutable (ADR-0006): SimpleCov writes to
-          # coverage/ under the checkout, so redirect by copy into CI_ARTIFACTS.
-          if [ -d coverage ]; then
-            mkdir -p "$CI_ARTIFACTS"
-            cp -rv coverage "$CI_ARTIFACTS/coverage"
+          if [ -d app ]; then
+            echo "rails_app=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload test results
+      - name: Brakeman
+        if: steps.rails-check.outputs.rails_app == 'true'
+        shell: bash
+        env:
+          # Brakeman has dropped support for Ruby 2, so we need to use an older version until we upgrade Ruby
+          BRAKEMAN_VERSION: ~> 5.0
+        run: |
+          mkdir -p artifacts
+          echo "source 'https://rubygems.org'" > Gemfile.brakeman
+          echo "gem 'brakeman', '$BRAKEMAN_VERSION'" >> Gemfile.brakeman
+          bundle install --gemfile Gemfile.brakeman
+          # EOLRails/EOLRuby are excluded: every cohort repo is on Rails 5.2 /
+          # Ruby 2.7 (both EOL — known, tracked, and upgrade is a programme
+          # outside CI migration scope). Without this, --exit-on-warn fails
+          # every app-containing repo on exactly those two warnings
+          # (cohort-governance discovery 011, first seen on v2-service-core).
+          # All other checks keep gating.
+          bundle exec --gemfile Gemfile.brakeman brakeman --exit-on-warn --except EOLRails,EOLRuby -o artifacts/brakeman.html
+
+      - name: Skip notice
+        if: steps.rails-check.outputs.rails_app != 'true'
+        shell: bash
+        run: echo "Not a Rails application — nothing to scan (dependency CVEs are covered by Dependabot)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload security artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: test-results
-          path: /home/runner/test-results/
-          if-no-files-found: ignore
-
-      - name: Upload coverage + artifacts
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: coverage
-          path: /home/runner/artifacts/
+          name: security-scan-results
+          path: artifacts/
           if-no-files-found: ignore
