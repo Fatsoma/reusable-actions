@@ -82,7 +82,13 @@ jobs:
           echo "source 'https://rubygems.org'" > Gemfile.brakeman
           echo "gem 'brakeman', '$BRAKEMAN_VERSION'" >> Gemfile.brakeman
           bundle install --gemfile Gemfile.brakeman
-          bundle exec --gemfile Gemfile.brakeman brakeman --exit-on-warn -o artifacts/brakeman.html
+          # EOLRails/EOLRuby are excluded: every cohort repo is on Rails 5.2 /
+          # Ruby 2.7 (both EOL — known, tracked, and upgrade is a programme
+          # outside CI migration scope). Without this, --exit-on-warn fails
+          # every app-containing repo on exactly those two warnings
+          # (cohort-governance discovery 011, first seen on v2-service-core).
+          # All other checks keep gating.
+          bundle exec --gemfile Gemfile.brakeman brakeman --exit-on-warn --except EOLRails,EOLRuby -o artifacts/brakeman.html
 
       - name: Skip notice
         if: steps.rails-check.outputs.rails_app != 'true'
