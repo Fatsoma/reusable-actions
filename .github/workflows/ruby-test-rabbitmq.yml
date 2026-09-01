@@ -1,0 +1,130 @@
+name: Ruby Test (RabbitMQ)
+
+on:
+  workflow_call:
+    inputs:
+      ruby-version:
+        description: Ruby version for setup-ruby. Defaults to the caller's .ruby-version.
+        required: false
+        type: string
+      app-client-id:
+        description: GitHub App client ID used to read private gem repositories. Required only when gem-allowlist is set.
+        required: false
+        type: string
+      gem-allowlist:
+        description: Newline-delimited private gem repositories the GitHub App token may fetch. Omit for public-only Gemfiles — no token is created and no private access is configured.
+        required: false
+        type: string
+    secrets:
+      FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
+        description: GitHub App private key used to read private gem repositories. Required only when gem-allowlist is set.
+        required: false
+      BUNDLE_RUBYGEMS__PKG__GITHUB__COM:
+        description: Token for rubygems.pkg.github.com gem sources. Required only for Gemfiles sourcing from GitHub Packages.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Job name stays "Test" so a repo switching from ruby-test.yml keeps the
+    # same required check name (Go precedent: per-profile files, one job each).
+    name: Test
+    runs-on: ubuntu-24.04
+    env:
+      BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
+      CONFIG_PATH: /home/runner/v2-fatsoma-settings
+      COVERAGE: "true"
+      CI_ARTIFACTS: /home/runner/artifacts
+      TEST_RESULTS: /home/runner/test-results
+      PAGER: cat
+    services:
+      rabbitmq:
+        image: rabbitmq:4.2.2-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Create private-gem token
+        if: inputs.gem-allowlist != ''
+        id: gem-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY }}
+          owner: Fatsoma
+          repositories: ${{ inputs.gem-allowlist }}
+          permission-contents: read
+
+      - name: Configure private gem access
+        if: inputs.gem-allowlist != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.gem-token.outputs.token }}
+        run: git config --global url."https://x-access-token:${GH_TOKEN}@github.com/Fatsoma/".insteadOf "git@github.com:Fatsoma/"
+
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+        with:
+          ruby-version: ${{ inputs.ruby-version != '' && inputs.ruby-version || 'default' }}
+          bundler-cache: true
+
+      - name: Distribute settings env files
+        shell: bash
+        run: |
+          mkdir -p "$CONFIG_PATH" "$CI_ARTIFACTS" "$TEST_RESULTS"
+          # Skipped for callers that don't depend on fatsoma-settings
+          # (v2-spec-helpers — the gem itself; discovery 008).
+          if ! SETTINGS_DIR=$(bundle info --path fatsoma-settings 2>/dev/null); then
+            echo "fatsoma-settings not in bundle; skipping settings distribution"
+            exit 0
+          fi
+          for env in test development local; do
+            cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
+          done
+
+      - name: Run specs
+        shell: bash
+        run: bundle exec rspec --format json --out $TEST_RESULTS/rspec/results.json --format documentation spec
+
+      - name: Write coverage summary
+        if: success()
+        shell: bash
+        run: |
+          COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
+          echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Copy coverage report to artifacts
+        if: always()
+        shell: bash
+        run: |
+          if [ -d coverage ]; then
+            mkdir -p "$CI_ARTIFACTS"
+            cp -rv coverage "$CI_ARTIFACTS/coverage"
+          fi
+
+      - name: Show RabbitMQ logs on failure
+        if: failure()
+        run: docker logs "${{ job.services.rabbitmq.id }}" || true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results
+          path: /home/runner/test-results/
+          if-no-files-found: ignore
+
+      - name: Upload coverage + artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage
+          path: /home/runner/artifacts/
+          if-no-files-found: ignore
