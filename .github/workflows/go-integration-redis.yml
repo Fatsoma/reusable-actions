@@ -37,7 +37,7 @@ permissions:
 jobs:
   integration:
     name: Integration
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     services:
       redis:
         image: redis:6.2.6

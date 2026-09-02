@@ -37,7 +37,7 @@ permissions:
 jobs:
   integration:
     name: Integration
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     services:
       elasticsearch:
         image: docker.elastic.co/elasticsearch/elasticsearch:5.6.16
