@@ -46,7 +46,7 @@ jobs:
 
       - name: Run security scan
         uses: securego/gosec@master
-       env:
+        env:
           GOPRIVATE: github.com/fatsoma/*
           GITHUB_AUTHENTICATION_TOKEN: ${{ steps.module-token.outputs.token }}
         with:
