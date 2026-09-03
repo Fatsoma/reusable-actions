@@ -31,7 +31,7 @@ jobs:
     # Job name stays "Test" so a repo switching from ruby-test.yml keeps the
     # same required check name (Go precedent: per-profile files, one job each).
     name: Test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     env:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
       CONFIG_PATH: /home/runner/v2-fatsoma-settings
