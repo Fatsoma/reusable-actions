@@ -39,8 +39,6 @@ jobs:
       BUNDLE_GEMS__RAILSLTS__COM: ${{ secrets.BUNDLE_GEMS__RAILSLTS__COM }}
       CONFIG_PATH: /home/runner/v2-fatsoma-settings
       COVERAGE: "true"
-      CI_ARTIFACTS: /home/runner/artifacts
-      TEST_RESULTS: /home/runner/test-results
       PAGER: cat
     services:
       rabbitmq:
@@ -81,7 +79,7 @@ jobs:
       - name: Distribute settings env files
         shell: bash
         run: |
-          mkdir -p "$CONFIG_PATH" "$CI_ARTIFACTS" "$TEST_RESULTS"
+          mkdir -p "$CONFIG_PATH"
           # Skipped for callers that don't bundle fatsoma-settings.
           if ! SETTINGS_DIR=$(bundle info --path fatsoma-settings 2>/dev/null); then
             echo "fatsoma-settings not in bundle; skipping settings distribution"
@@ -93,7 +91,9 @@ jobs:
 
       - name: Run specs
         shell: bash
-        run: bundle exec rspec --format json --out $TEST_RESULTS/rspec/results.json --format documentation spec
+        run: |
+          mkdir -p test-results
+          bundle exec rspec --format json --out test-results/results.json --format documentation spec
 
       - name: Write coverage summary
         if: success()
@@ -101,14 +101,6 @@ jobs:
         run: |
           COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
           echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Copy coverage report to artifacts
-        if: always()
-        shell: bash
-        run: |
-          if [ -d coverage ]; then
-            cp -rv coverage "$CI_ARTIFACTS/coverage"
-          fi
 
       - name: Show RabbitMQ logs on failure
         if: failure()
@@ -119,7 +111,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: test-results
-          path: /home/runner/test-results/
+          path: test-results/
           if-no-files-found: ignore
 
       - name: Upload coverage + artifacts
@@ -127,5 +119,5 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage
-          path: /home/runner/artifacts/
+          path: coverage/
           if-no-files-found: ignore
