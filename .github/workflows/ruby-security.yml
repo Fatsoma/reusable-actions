@@ -92,12 +92,15 @@ jobs:
           # EOLRails/EOLRuby are excluded: every cohort repo is on Rails 5.2 /
           # Ruby 2.7 (both EOL — known, tracked, and upgrade is a programme
           # outside CI migration scope).
-          # Advisory, not a gate: CircleCI's rake task ended with `echo $?`,
-          # swallowing the exit code, so brakeman has never failed a cohort
-          # build and every repo carries an unknown warning backlog
-          # (organisation: 2 SQL injection warnings). Report is uploaded for
-          # triage; gating is a separate programme decision.
-          brakeman --except EOLRails,EOLRuby -o artifacts/brakeman.html || true
+          # Advisory on warnings, gating on everything else: CircleCI's rake
+          # task ended with `echo $?`, swallowing the exit code, so brakeman
+          # has never failed a cohort build and every repo carries an unknown
+          # warning backlog (organisation: 2 SQL injection warnings). Gating
+          # on warnings is a separate triage programme decision.
+          # Brakeman exit codes are preserved: 3 (warnings found) is
+          # tolerated; errors (7), outdated gem (5), missing checks (6),
+          # ignore-file problems (8/9), and crashes still fail the job.
+          brakeman --except EOLRails,EOLRuby -o artifacts/brakeman.html || [ $? -eq 3 ]
 
       - name: Skip notice
         if: steps.rails-check.outputs.rails_app != 'true'
