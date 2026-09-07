@@ -18,7 +18,7 @@ Each job uploads its reports as workflow-run artifacts, downloadable from the ru
 
 ## Onboarding a new repository
 
-1. Grant the repository access to private dependencies if it needs them — see [Private dependencies](#private-dependencies). This is the only step that requires an organisation admin.
+1. Grant the repository access to private dependencies if it needs them — see [Private dependencies](#private-dependencies). This step requires an organisation admin.
 2. Create `.github/workflows/ci.yml` with the triggers above and `permissions: contents: read`.
 3. Copy the quickstart for your language — [Go](#go-ci) or [Ruby](#ruby-ci) — plus an [ECR push](#ecr-push) job if the repository ships a Docker image.
 4. Pin every `uses:` line to the release-tag SHA with the trailing tag comment (e.g. `# v2`).
@@ -223,7 +223,7 @@ The lint, test, and security workflows accept the same optional inputs; the serv
 
 ### Gem publish
 
-`ruby-gem-publish` builds the gem from `<gem-name>.gemspec` and pushes it to GitHub Packages under the repository's owner. It is triggered on push to the default branch rather than on `workflow_call` from a job, and requires the `BUNDLE_RUBYGEMS__PKG__GITHUB__COM` secret:
+`ruby-gem-publish` builds the gem from `<gem-name>.gemspec` and pushes it to GitHub Packages under the repository's owner. Callers place it in a workflow triggered on push to the default branch rather than in the pull-request CI workflow, and pass the `BUNDLE_RUBYGEMS__PKG__GITHUB__COM` secret:
 
 ```yml
 on:
