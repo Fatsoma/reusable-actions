@@ -22,6 +22,9 @@ on:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM:
         description: Token for rubygems.pkg.github.com gem sources. Required only for Gemfiles sourcing from GitHub Packages.
         required: false
+      BUNDLE_GEMS__RAILSLTS__COM:
+        description: Credentials (username:password) for gems.railslts.com. Required only for Gemfiles sourcing Rails LTS.
+        required: false
 
 permissions:
   contents: read
@@ -32,6 +35,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
+      BUNDLE_GEMS__RAILSLTS__COM: ${{ secrets.BUNDLE_GEMS__RAILSLTS__COM }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

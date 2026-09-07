@@ -64,6 +64,8 @@ Before this works for a new repository, an organisation admin must grant access 
 
 `FATSOMA_DEPENDENCIES_APP_CLIENT_ID` is an organisation variable available to all repositories; it needs no per-repository scoping.
 
+Ruby apps whose Gemfile sources Rails LTS also need the `BUNDLE_GEMS__RAILSLTS__COM` organisation secret (`username:password` for gems.railslts.com) granted to the repository; bundler reads the variable natively, so the value needs no mapping.
+
 ## Go CI
 
 The Go CI workflows standardize `Test`, `Coverage`, `Security`, and `Integration` jobs. Test results come from `go test -json` and coverage from `go tool cover` — no JUnit conversion or extra tooling.

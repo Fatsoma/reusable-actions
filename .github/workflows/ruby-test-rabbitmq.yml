@@ -22,6 +22,9 @@ on:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM:
         description: Token for rubygems.pkg.github.com gem sources. Required only for Gemfiles sourcing from GitHub Packages.
         required: false
+      BUNDLE_GEMS__RAILSLTS__COM:
+        description: Credentials (username:password) for gems.railslts.com. Required only for Gemfiles sourcing Rails LTS.
+        required: false
 
 permissions:
   contents: read
@@ -34,6 +37,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
+      BUNDLE_GEMS__RAILSLTS__COM: ${{ secrets.BUNDLE_GEMS__RAILSLTS__COM }}
       CONFIG_PATH: /home/runner/v2-fatsoma-settings
       COVERAGE: "true"
       CI_ARTIFACTS: /home/runner/artifacts
