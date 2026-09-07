@@ -221,7 +221,7 @@ The service-backed test variants run `db:create db:test:prepare` before the spec
 
 `ruby-integration-rabbitmq.yml` is the exception to the single-job rule, used by v2-queue only: its spec_helper gates `type: :integration` specs behind the `INTEGRATION` environment variable, so this workflow runs the suite with `INTEGRATION=true` against a `rabbitmq:4.2.2-management-alpine` service container, prescribing the broker topology (exchange, DLX, retry queue, policies) over the management HTTP API before the specs run. Results upload as `integration-results` / `integration-coverage`.
 
-`ruby-security.yml` runs brakeman (`~> 5.0`, pinned for Ruby 2.7) with `--exit-on-warn` for Rails applications (detected by the presence of `app/`), uploading the HTML report as `security-scan-results`. The `EOLRails` and `EOLRuby` checks are excluded because Fatsoma's Rails apps run EOL Rails 5.2 on Ruby 2.7; all other checks still gate. Dependency CVE scanning is deliberately absent: Dependabot alerts cover it. Non-Rails callers can omit the security job entirely.
+`ruby-security.yml` runs brakeman (`~> 5.0`, pinned for Ruby 2.7) for Rails applications (detected by the presence of `app/`), uploading the HTML report as `security-scan-results`. The scan is advisory, not a gate: the previous CI ran brakeman without failing on warnings, so every repo carries an unmeasured backlog — the report exists for triage, and turning it into a gate is a separate decision. The `EOLRails` and `EOLRuby` checks are excluded because Fatsoma's Rails apps run EOL Rails 5.2 on Ruby 2.7. Dependency CVE scanning is deliberately absent: Dependabot alerts cover it. Non-Rails callers can omit the security job entirely.
 
 ### Gem publish
 
