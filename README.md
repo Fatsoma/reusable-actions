@@ -1,58 +1,160 @@
 # reusable-actions
 
-Public repository for reusable GitHub Actions workflows.
+Reusable GitHub Actions workflows for Fatsoma repositories.
 
-Callers pin every reusable workflow to the full immutable Git commit SHA resolved from a release tag. The SHA fixes the exact code executed. Replace `REUSABLE_ACTIONS_SHA` in the examples with the commit SHA of the release tag you want, and add the tag name as a trailing comment, for example `@0123456789abcdef... # v2`. [Dependabot updates for GitHub Actions](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/auto-update-actions) can then propose bumps while reviewers see the human-readable release version.
+Callers pin every reusable workflow to the full immutable Git commit SHA resolved from a release tag — the SHA fixes the exact code executed. Add the tag name as a trailing comment, for example `@0123456789abcdef... # v2`, so reviewers see the human-readable release version. [Dependabot updates for GitHub Actions](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/auto-update-actions) can then propose bumps. Replace `REUSABLE_ACTIONS_SHA` in the examples with the commit SHA of the release tag you want.
 
-## Usage
-
-```yml
-jobs:
-  ecr-push:
-    uses: Fatsoma/reusable-actions/.github/workflows/ecr-push.yml@REUSABLE_ACTIONS_SHA # v1
-    with:
-      aws-region: us-west-1
-      ecr-repository: ${{ github.event.repository.name }}
-      environment: staging
-      image-tag: latest
-
-  ruby-lint:
-    uses: Fatsoma/reusable-actions/.github/workflows/ruby-lint.yml@REUSABLE_ACTIONS_SHA # v2
-
-  ruby-security:
-    uses: Fatsoma/reusable-actions/.github/workflows/ruby-security.yml@REUSABLE_ACTIONS_SHA # v2
-
-  ruby-test:
-    uses: Fatsoma/reusable-actions/.github/workflows/ruby-test.yml@REUSABLE_ACTIONS_SHA # v2
-```
-
-`ruby-gem-publish` is triggered on push to `main` rather than on `workflow_call` from a job:
+Caller workflows typically trigger on pushes to the default branch, pull requests, and manual dispatch:
 
 ```yml
 on:
   push:
-    branches: main
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+```
+
+Each job uploads its reports as workflow-run artifacts, downloadable from the run's summary page.
+
+## Onboarding a new repository
+
+1. Grant the repository access to private dependencies if it needs them — see [Private dependencies](#private-dependencies). This is the only step that requires an organisation admin.
+2. Create `.github/workflows/ci.yml` with the triggers above and `permissions: contents: read`.
+3. Copy the quickstart for your language — [Go](#go-ci) or [Ruby](#ruby-ci) — plus an [ECR push](#ecr-push) job if the repository ships a Docker image.
+4. Pin every `uses:` line to the release-tag SHA with the trailing tag comment (e.g. `# v2`).
+
+A complete minimal Go `ci.yml` looks like this:
+
+```yml
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  ruby-gem-publish:
-    uses: Fatsoma/reusable-actions/.github/workflows/ruby-gem-publish.yml@REUSABLE_ACTIONS_SHA # v1
+  test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: Fatsoma/reusable-actions/.github/workflows/go-test.yml@REUSABLE_ACTIONS_SHA # v2
+
+  coverage:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: Fatsoma/reusable-actions/.github/workflows/go-coverage.yml@REUSABLE_ACTIONS_SHA # v2
+
+  security:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: Fatsoma/reusable-actions/.github/workflows/go-security.yml@REUSABLE_ACTIONS_SHA # v2
+```
+
+The `if:` guard on each caller job skips the job for pull requests opened from forks; without it, the same change runs twice on pull requests from branches inside the repository.
+
+## Private dependencies
+
+Both the Go and Ruby workflows follow the same pattern when a repository depends on private Fatsoma repositories: the caller passes the GitHub App client ID plus a newline-delimited allowlist of the private repositories to read, and `secrets: inherit` passes the caller's secrets — including `FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY` — to the reusable workflow. Both `app-client-id` and the allowlist input are required together; when the allowlist is omitted, no token is created and no private access is configured. The workflow rewrites `github.com` remote URLs (HTTPS or SSH) to token-authenticated HTTPS before dependency installation; manifests and lockfiles keep recording their original remotes and need no changes.
+
+Before this works for a new repository, an organisation admin must grant access in two places:
+
+1. Add the repository under the GitHub App's installation repository access: [Fatsoma Dependencies installation settings](https://github.com/organizations/Fatsoma/settings/installations/152920273).
+2. Add the repository to the organisation secret's selected repositories: [FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY secret settings](https://github.com/organizations/Fatsoma/settings/secrets/actions/FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY).
+
+`FATSOMA_DEPENDENCIES_APP_CLIENT_ID` is an organisation variable available to all repositories; it needs no per-repository scoping.
+
+## Go CI
+
+The Go CI workflows standardize `Test`, `Coverage`, `Security`, and `Integration` jobs. Test results come from `go test -json` and coverage from `go tool cover` — no JUnit conversion or extra tooling.
+
+A minimal repository — public modules only — needs no inputs at all:
+
+```yml
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: Fatsoma/reusable-actions/.github/workflows/go-test.yml@REUSABLE_ACTIONS_SHA # v2
+
+  coverage:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: Fatsoma/reusable-actions/.github/workflows/go-coverage.yml@REUSABLE_ACTIONS_SHA # v2
+
+  security:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: Fatsoma/reusable-actions/.github/workflows/go-security.yml@REUSABLE_ACTIONS_SHA # v2
+```
+
+Repositories with integration tests add an integration job gated behind the unit jobs:
+
+```yml
+jobs:
+  # test, coverage, security jobs as above
+
+  integration:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: [test, coverage, security]
+    uses: Fatsoma/reusable-actions/.github/workflows/go-integration.yml@REUSABLE_ACTIONS_SHA # v2
+```
+
+### Private Go modules
+
+If `go.mod` requires private Fatsoma modules, pass the GitHub App credentials and a newline-delimited allowlist of the private repositories to read (see [Private dependencies](#private-dependencies) for the one-time organisation setup):
+
+```yml
+jobs:
+  test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: Fatsoma/reusable-actions/.github/workflows/go-test.yml@REUSABLE_ACTIONS_SHA # v2
     with:
-      gem-name: example-gem
+      app-client-id: ${{ vars.FATSOMA_DEPENDENCIES_APP_CLIENT_ID }}
+      module-allowlist: |
+        v2-api-auth
+        v2-api-httpclient
+    secrets: inherit
 ```
 
-You can use custom docker build instructions with a `ci-docker-build` make target:
+Repositories without private module dependencies can omit `secrets: inherit` entirely.
 
-```make
-CI_DOCKER_IMAGE=
+### Inputs
 
-.PHONY: ci-docker-build
-ci-docker-build:
-	docker build --tag "$(CI_DOCKER_IMAGE)" .
-```
+| Input              | Default              | Workflows                   | Purpose                                                                           |
+| ------------------ | -------------------- | --------------------------- | --------------------------------------------------------------------------------- |
+| `app-client-id`    | —                    | all                         | GitHub App client ID for private module access. Required with `module-allowlist`. |
+| `module-allowlist` | —                    | all                         | Newline-delimited private module repositories for the GitHub App token.           |
+| `translate`        | `false`              | test, coverage, integration | Merge goi18n translation files before the run.                                    |
+| `env`              | `""`                 | integration                 | Newline-delimited `KEY=VALUE` integration environment variables.                  |
+| `test-path`        | `./test/integration` | integration                 | Package path for the integration tests.                                           |
+
+### What each workflow does
+
+`go-test.yml` runs `go test -json ./...` and uploads the JSON results as the `test-results` artifact. `ZONEINFO` is derived from `go env GOROOT` so tests use the installed Go timezone data. The Go version comes from the caller's `go.mod`.
+
+`go-coverage.yml` runs `go test -v -coverprofile` with `TZ=""`, renders an HTML report with `go tool cover`, uploads it as the `coverage` artifact, and appends `total: **N%**` to the job's step summary.
+
+`go-security.yml` runs gosec with `args: ./...`. It deliberately tracks the mutable `securego/gosec@master` so new checks reach every caller as soon as they land — reduced time to discovery for security issues — and produces no report artifact.
+
+`go-integration.yml` and its per-service variants run `go test -json -tags integration` against the `test-path` package, uploading results as `integration-test-results`. One workflow file exists per service combination — conditional `services:` are not valid in reusable workflows:
+
+| Workflow                                  | Services                     |
+| ----------------------------------------- | ---------------------------- |
+| `go-integration.yml`                      | none                         |
+| `go-integration-redis.yml`                | redis                        |
+| `go-integration-valkey.yml`               | valkey                       |
+| `go-integration-elasticsearch.yml`        | elasticsearch                |
+| `go-integration-elasticsearch-valkey.yml` | elasticsearch + valkey       |
+| `go-integration-postgres.yml`             | postgres                     |
+| `go-integration-postgres-rabbitmq.yml`    | postgres + rabbitmq          |
+| `go-integration-rabbitmq.yml`             | rabbitmq (no current caller) |
+
+All variants keep the job name `Integration` so switching between them keeps the same required check. Service-backed test/coverage variants (`go-test-elasticsearch.yml`, `go-test-elasticsearch-valkey.yml`, `go-coverage-elasticsearch.yml`) likewise keep the `Test`/`Coverage` job names.
 
 ## Ruby CI
 
-The Ruby CI workflows standardize `Lint`, `Test`, and `Security` jobs for the Fatsoma Ruby cohort migrating from CircleCI. Each call uses an immutable `REUSABLE_ACTIONS_SHA`. Test result and coverage data come from rspec's built-in JSON formatter and SimpleCov's default `.last_run.json` — no extra reporting gems.
+The Ruby CI workflows standardize `Lint`, `Test`, and `Security` jobs. Test result and coverage data come from rspec's built-in JSON formatter and SimpleCov's default `.last_run.json` — no extra reporting gems. Unlike the Go workflows, Ruby apps generally do not split unit and integration specs into separate CI jobs: service-dependent specs run inside the main `rspec spec` run, so a repository that needs services swaps `ruby-test.yml` for a service-backed variant rather than adding an integration job.
 
 A minimal repository — public gems only — needs no inputs at all:
 
@@ -74,13 +176,12 @@ jobs:
     uses: Fatsoma/reusable-actions/.github/workflows/ruby-security.yml@REUSABLE_ACTIONS_SHA # v2
 ```
 
-The `if:` guard on each caller job skips the job for pull requests opened from forks; without it, the same change runs twice on pull requests from branches inside the repository.
-
 ### Private gems
 
-If the `Gemfile` git-sources private Fatsoma gems, pass the GitHub App credentials and a newline-delimited allowlist of the private repositories to read. Both `app-client-id` and `gem-allowlist` are required together; when `gem-allowlist` is omitted, no token is created and no private-gem access is configured.
+If the `Gemfile` git-sources private Fatsoma gems, pass the GitHub App credentials and a newline-delimited allowlist of the private repositories to read (see [Private dependencies](#private-dependencies) for the one-time organisation setup):
 
 ```yml
+jobs:
   test:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     uses: Fatsoma/reusable-actions/.github/workflows/ruby-test.yml@REUSABLE_ACTIONS_SHA # v2
@@ -92,28 +193,80 @@ If the `Gemfile` git-sources private Fatsoma gems, pass the GitHub App credentia
     secrets: inherit
 ```
 
-`secrets: inherit` passes the caller repository's secrets to the reusable workflow, including `FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY` when it is configured. Repositories without private gem dependencies can omit `secrets: inherit` entirely.
-
-The workflow rewrites `git@github.com:Fatsoma/` URLs to token-authenticated HTTPS before `bundle install`; `Gemfile.lock` keeps recording the SSH remotes and needs no changes.
+Repositories without private gem dependencies can omit `secrets: inherit` entirely. The workflow rewrites `git@github.com:Fatsoma/` URLs to token-authenticated HTTPS before `bundle install`; `Gemfile.lock` keeps recording the SSH remotes and needs no changes.
 
 ### Inputs
 
-All three Ruby workflows accept the same optional inputs:
+The lint, test, and security workflows accept the same optional inputs; the service-backed test variants add their own (see below).
 
-| Input | Default | Purpose |
-| --- | --- | --- |
-| `ruby-version` | `.ruby-version` | Ruby version for setup-ruby. |
-| `app-client-id` | — | GitHub App client ID for private gem access. Required with `gem-allowlist`. |
-| `gem-allowlist` | — | Newline-delimited private gem repositories for the GitHub App token. |
+| Input           | Default         | Purpose                                                                     |
+| --------------- | --------------- | --------------------------------------------------------------------------- |
+| `ruby-version`  | `.ruby-version` | Ruby version for setup-ruby.                                                |
+| `app-client-id` | —               | GitHub App client ID for private gem access. Required with `gem-allowlist`. |
+| `gem-allowlist` | —               | Newline-delimited private gem repositories for the GitHub App token.        |
+
+`ruby-test-postgres-redis.yml` additionally accepts `db-setup` (`structure-load` | `schema-load` | `test-prepare`) for Rails DB preparation; omit it when the suite needs no DB setup.
 
 ### What each workflow does
 
-`ruby-lint.yml` checks out with full history, then runs rubocop with `--fail-level convention --force-exclusion` on the Ruby files changed in the pull request (merge-base of the base branch) or push (`github.event.before`); when no base resolves it lints the whole repo. The caller's `.rubocop.yml` is used when present; when absent, rubocop falls back to the default configuration inherited from the `rubocop-fatsoma-config` gem via the cohort Gemfiles (v2-spec-helpers is the one such repo — its gem is immutable, ADR-0006).
+`ruby-lint.yml` runs rubocop with `--fail-level convention --force-exclusion` on the Ruby files changed in the pull request or push; when no base resolves it lints the whole repo. The caller's `.rubocop.yml` is used when present.
 
-`ruby-test.yml` distributes the bundled fatsoma-settings gem's `.env.circle` into `$CONFIG_PATH/.env.{test,development,local}` (mirroring CircleCI's settings step), then runs `bundle exec rspec --format json --format documentation spec`, uploading the JSON test results and the coverage/artifacts directory. With `COVERAGE=true` set by the workflow, SimpleCov writes its HTML report and `.last_run.json` under `coverage/`; the workflow appends `total: **N%**` to the job's step summary and copies the report into `$CI_ARTIFACTS/coverage` for upload (the spec-helpers gem is immutable — no `CI_ARTIFACTS` starter exists in it, ADR-0006).
+`ruby-test.yml` distributes the bundled fatsoma-settings gem's `.env.circle` into `$CONFIG_PATH/.env.{test,development,local}`, then runs `bundle exec rspec --format json --format documentation spec`, uploading the JSON test results and the coverage report. SimpleCov writes its HTML report and `.last_run.json` under `coverage/`; the workflow appends `total: **N%**` to the job's step summary.
 
-`ruby-test-rabbitmq.yml` and `ruby-test-postgres-redis.yml` are the service-backed variants of `ruby-test.yml` for the service-backed gems, following the Go per-profile file convention (one workflow per service combination — conditional `services:` are not valid in reusable workflows). Both keep the job name `Test` so switching from `ruby-test.yml` keeps the same required check. `ruby-test-postgres-redis.yml` runs cimg/postgres:17.9 with `POSTGRES_USER=fatsoma` + `POSTGRES_HOST_AUTH_METHOD=trust` (the CircleCI image allowed local connections as any role; specs such as v2-fatsoma-database-tools' connect as the postgres superuser) and redis:3-alpine, plus a `db-setup` input (`structure-load` | `schema-load` | `test-prepare`) for Rails DB preparation — an input, not a convention, because analytics/order (`db:test:prepare`) and ui-core (`db:schema:load`) differ from the pack (contract §5 item 5). The service wave's full profile (postgres + rabbitmq + redis, +elasticsearch for product) lands as its own per-profile file when the service wave starts.
+`ruby-test-rabbitmq.yml` and `ruby-test-postgres-redis.yml` are the service-backed variants of `ruby-test.yml` — one workflow per service combination, because conditional `services:` are not valid in reusable workflows. Both keep the job name `Test` so switching from `ruby-test.yml` keeps the same required check. `ruby-test-postgres-redis.yml` runs cimg/postgres:17.9 with `POSTGRES_USER=fatsoma` + `POSTGRES_HOST_AUTH_METHOD=trust` and redis:3-alpine.
 
-`ruby-integration-rabbitmq.yml` runs the full spec suite with `INTEGRATION=true` against a `rabbitmq:4.2.2-management-alpine` service container (ports 5672/15672; a broker health check replaces CircleCI's `dockerize -wait` — the management variant is used because broker configuration goes over the management HTTP API, unlike the Go integration jobs which use plain `rabbitmq:4.2.2`), mirroring v2-queue's CircleCI integration job. Before the specs, the workflow prescribes the broker topology itself: topic exchange `fatsoma_test`, fanout DLX `fatsoma_test_dlx`, durable lazy `retry` queue, the `retry-lazy` and `dlx` queue policies, and the DLX→retry binding — the same setup as `message_queue:configure` for the test environment in v2-tools (docker/README.md), reimplemented over the management API so CI does not depend on v2-tools/docker-tools. The `ha-mode` policies from v2-queue's old CircleCI `config_rabbitmq.sh` are dropped: meaningless on a single ephemeral node and rejected by RabbitMQ 4.x. `WORKERS_MESSAGE_QUEUE_RETRY_{BASE,MULTIPLIER,LIMIT}` are set to `1/2/10` as in CircleCI. Results upload as `integration-results` / `integration-coverage`. Currently used by v2-queue only.
+`ruby-integration-rabbitmq.yml` is the exception to the single-job rule, used by v2-queue only: its spec_helper gates `type: :integration` specs behind the `INTEGRATION` environment variable, so this workflow runs the suite with `INTEGRATION=true` against a `rabbitmq:4.2.2-management-alpine` service container, prescribing the broker topology (exchange, DLX, retry queue, policies) over the management HTTP API before the specs run. Results upload as `integration-results` / `integration-coverage`.
 
-`ruby-security.yml` runs brakeman (`~> 5.0`, pinned for Ruby 2.7) with `--exit-on-warn` for Rails applications (detected by the presence of `app/`), uploading the HTML report as `security-scan-results`. The `EOLRails` and `EOLRuby` checks are excluded: the whole cohort runs Rails 5.2 on Ruby 2.7 (both EOL), those warnings are known and tracked, and upgrading is a programme outside CI migration scope — without the exclusion every app-containing repo would fail on exactly those two warnings (cohort-governance discovery 011). All other checks still gate. Dependency CVE scanning is deliberately absent: Dependabot alerts cover it. Non-Rails callers can omit the security job entirely.
+`ruby-security.yml` runs brakeman (`~> 5.0`, pinned for Ruby 2.7) with `--exit-on-warn` for Rails applications (detected by the presence of `app/`), uploading the HTML report as `security-scan-results`. The `EOLRails` and `EOLRuby` checks are excluded because Fatsoma's Rails apps run EOL Rails 5.2 on Ruby 2.7; all other checks still gate. Dependency CVE scanning is deliberately absent: Dependabot alerts cover it. Non-Rails callers can omit the security job entirely.
+
+### Gem publish
+
+`ruby-gem-publish` builds the gem from `<gem-name>.gemspec` and pushes it to GitHub Packages under the repository's owner. It is triggered on push to the default branch rather than on `workflow_call` from a job, and requires the `BUNDLE_RUBYGEMS__PKG__GITHUB__COM` secret:
+
+```yml
+on:
+  push:
+    branches: master
+
+jobs:
+  ruby-gem-publish:
+    uses: Fatsoma/reusable-actions/.github/workflows/ruby-gem-publish.yml@REUSABLE_ACTIONS_SHA # v2
+    with:
+      gem-name: example-gem
+    secrets: inherit
+```
+
+## ECR push
+
+`ecr-push.yml` builds a Docker image and pushes it to an ECR repository:
+
+```yml
+jobs:
+  ecr-push:
+    uses: Fatsoma/reusable-actions/.github/workflows/ecr-push.yml@REUSABLE_ACTIONS_SHA # v2
+    with:
+      aws-region: us-west-1
+      ecr-repository: ${{ github.event.repository.name }}
+      environment: staging
+      image-tag: latest
+```
+
+| Input            | Default        | Purpose                                     |
+| ---------------- | -------------- | ------------------------------------------- |
+| `aws-account`    | `819738237059` | AWS account ID (numeric form).              |
+| `aws-region`     | —              | AWS region of the ECR repository.           |
+| `ecr-repository` | —              | ECR repository name.                        |
+| `environment`    | —              | App environment (e.g. staging, production). |
+| `image-tag`      | —              | Tag for the image build.                    |
+
+The workflow assumes the IAM role `arn:aws:iam::<aws-account>:role/gha-<environment>-<repository>` via OIDC, so the role must exist with a trust policy for the caller repository before the first run.
+
+You can use custom docker build instructions with a `ci-docker-build` make target:
+
+```make
+CI_DOCKER_IMAGE=
+
+.PHONY: ci-docker-build
+ci-docker-build:
+	docker build --tag "$(CI_DOCKER_IMAGE)" .
+```
