@@ -83,20 +83,19 @@ jobs:
           BRAKEMAN_VERSION: ~> 5.0
         run: |
           mkdir -p artifacts
-          echo "source 'https://rubygems.org'" > Gemfile.brakeman
-          echo "gem 'brakeman', '$BRAKEMAN_VERSION'" >> Gemfile.brakeman
-          # setup-ruby's bundler-cache sets deployment mode in the repo's
-          # local .bundle/config, which demands a checked-in lockfile —
-          # impossible for this ad-hoc gemfile.
-          bundle config unset --local deployment
-          bundle install --gemfile Gemfile.brakeman
+          # Brakeman parses source without executing it, so it runs standalone
+          # outside the app bundle — no Gemfile, no interaction with the
+          # caller's bundler config (setup-ruby's bundler-cache deployment
+          # mode broke the previous ad-hoc Gemfile.brakeman on the
+          # v2-service-organisation pilot).
+          gem install brakeman -v "$BRAKEMAN_VERSION" --no-document
           # EOLRails/EOLRuby are excluded: every cohort repo is on Rails 5.2 /
           # Ruby 2.7 (both EOL — known, tracked, and upgrade is a programme
           # outside CI migration scope). Without this, --exit-on-warn fails
           # every app-containing repo on exactly those two warnings
           # (cohort-governance discovery 011, first seen on v2-service-core).
           # All other checks keep gating.
-          bundle exec --gemfile Gemfile.brakeman brakeman --exit-on-warn --except EOLRails,EOLRuby -o artifacts/brakeman.html
+          brakeman --exit-on-warn --except EOLRails,EOLRuby -o artifacts/brakeman.html
 
       - name: Skip notice
         if: steps.rails-check.outputs.rails_app != 'true'
