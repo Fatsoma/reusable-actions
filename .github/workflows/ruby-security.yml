@@ -85,6 +85,10 @@ jobs:
           mkdir -p artifacts
           echo "source 'https://rubygems.org'" > Gemfile.brakeman
           echo "gem 'brakeman', '$BRAKEMAN_VERSION'" >> Gemfile.brakeman
+          # setup-ruby's bundler-cache sets deployment mode in the repo's
+          # local .bundle/config, which demands a checked-in lockfile —
+          # impossible for this ad-hoc gemfile.
+          bundle config unset --local deployment
           bundle install --gemfile Gemfile.brakeman
           # EOLRails/EOLRuby are excluded: every cohort repo is on Rails 5.2 /
           # Ruby 2.7 (both EOL — known, tracked, and upgrade is a programme
