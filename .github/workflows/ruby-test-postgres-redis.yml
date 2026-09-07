@@ -126,7 +126,6 @@ jobs:
         shell: bash
         run: |
           if [ -d coverage ]; then
-            mkdir -p "$CI_ARTIFACTS"
             cp -rv coverage "$CI_ARTIFACTS/coverage"
           fi
 

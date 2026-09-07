@@ -98,7 +98,6 @@ jobs:
         run: |
           # SimpleCov writes under the checkout; copy into CI_ARTIFACTS.
           if [ -d coverage ]; then
-            mkdir -p "$CI_ARTIFACTS"
             cp -rv coverage "$CI_ARTIFACTS/coverage"
           fi
 
