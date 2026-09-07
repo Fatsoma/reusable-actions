@@ -129,6 +129,8 @@ Repositories without private module dependencies can omit `secrets: inherit` ent
 | `env`              | `""`                 | integration                 | Newline-delimited `KEY=VALUE` integration environment variables.                  |
 | `test-path`        | `./test/integration` | integration                 | Package path for the integration tests.                                           |
 
+The postgres integration profiles additionally accept `migrate` (run migrations before the tests), `migrations-dir`, and `postgres-db` / `postgres-user` / `postgres-password`.
+
 ### What each workflow does
 
 `go-test.yml` runs `go test -json ./...` and uploads the JSON results as the `test-results` artifact. `ZONEINFO` is derived from `go env GOROOT` so tests use the installed Go timezone data. The Go version comes from the caller's `go.mod`.
