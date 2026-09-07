@@ -1,0 +1,53 @@
+name: Go Security
+
+on:
+  workflow_call:
+    inputs:
+      app-client-id:
+        description: GitHub App client ID used to read private Go modules. Required only when module-allowlist is set.
+        required: false
+        type: string
+      module-allowlist:
+        description: Newline-delimited private module repositories for the GitHub App token. Omit for public-only repositories — no token is created and no private-module access is configured.
+        required: false
+        type: string
+    secrets:
+      FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
+        description: GitHub App private key used to read private Go modules. Required only when module-allowlist is set.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    name: Security
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Create private-module token
+        if: inputs.module-allowlist != ''
+        id: module-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY }}
+          owner: Fatsoma
+          repositories: ${{ inputs.module-allowlist }}
+          permission-contents: read
+
+      - name: Configure private module access
+        if: inputs.module-allowlist != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.module-token.outputs.token }}
+        run: git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Run security scan
+        uses: securego/gosec@master
+        env:
+          GOPRIVATE: github.com/fatsoma/*
+          GITHUB_AUTHENTICATION_TOKEN: ${{ steps.module-token.outputs.token }}
+        with:
+          args: ./...
