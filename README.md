@@ -20,7 +20,7 @@ Each job uploads its reports as workflow-run artifacts, downloadable from the ru
 
 1. Grant the repository access to private dependencies if it needs them — see [Private dependencies](#private-dependencies). This step requires an organisation admin.
 2. Create `.github/workflows/ci.yml` with the triggers above and `permissions: contents: read`.
-3. Copy the quickstart for your language — [Go](#go-ci) or [Ruby](#ruby-ci) — plus an [ECR push](#ecr-push) job if the repository ships a Docker image.
+3. Copy the quickstart for your language — [Go](#go-ci) or [Ruby](#ruby-ci) — plus an [ECR push](#ecr-push) job if the repository ships a Docker image. All jobs live in the single `ci.yml` — the convention is one caller file per repository, not one file per reusable workflow.
 4. Pin every `uses:` line to the release-tag SHA with the trailing tag comment (e.g. `# v2`).
 
 A complete minimal Go `ci.yml` looks like this:
