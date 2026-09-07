@@ -42,11 +42,8 @@ jobs:
       TEST_RESULTS: /home/runner/test-results
       PAGER: cat
     services:
-      # POSTGRES_USER=root: the cohort's settings (v2-fatsoma-settings
-      # .env.circle) connect every service as the root role — 42 services
-      # set DATABASE_USERNAME=root — matching what CircleCI's cimg/postgres
-      # provisioned. POSTGRES_HOST_AUTH_METHOD=trust replicates cimg's
-      # passwordless local auth.
+      # Cohort settings connect as the root role (v2-fatsoma-settings
+      # .env.circle); trust auth replicates passwordless local access.
       postgres:
         image: postgres:17-alpine
         env:
@@ -77,8 +74,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      # ES 5.x needs a longer boot; specs connect over HTTP to :9200
-      # (v2-service-product's spec_helper allows net connect to /:9200/).
+      # ES 5.x boots slowly — hence 15 health retries.
       elasticsearch:
         image: docker.elastic.co/elasticsearch/elasticsearch:5.6.16
         env:
@@ -120,8 +116,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$CONFIG_PATH" "$CI_ARTIFACTS" "$TEST_RESULTS"
-          # Skipped for callers that don't depend on fatsoma-settings
-          # (v2-spec-helpers — the gem itself; discovery 008).
+          # Skipped for callers that don't bundle fatsoma-settings.
           if ! SETTINGS_DIR=$(bundle info --path fatsoma-settings 2>/dev/null); then
             echo "fatsoma-settings not in bundle; skipping settings distribution"
             exit 0
@@ -130,10 +125,8 @@ jobs:
             cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
           done
 
-      # Service readiness is gated by the container health checks above
-      # (CircleCI used dockerize -wait with a 1m timeout per port).
-      # db:test:prepare checks for pending migrations, then loads
-      # db/structure.sql — the whole cohort is schema_format :sql.
+      # db:test:prepare guards pending migrations, then loads
+      # db/structure.sql (cohort is schema_format :sql).
       - name: Prepare database
         shell: bash
         run: RAILS_ENV=test bundle exec rake db:create db:test:prepare

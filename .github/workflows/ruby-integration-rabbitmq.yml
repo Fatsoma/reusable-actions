@@ -42,15 +42,13 @@ jobs:
       CI_ARTIFACTS: /home/runner/artifacts
       TEST_RESULTS: /home/runner/test-results
       PAGER: cat
-      # Retry policy under test — mirrors the CircleCI integration job env.
+      # Retry policy under test.
       WORKERS_MESSAGE_QUEUE_RETRY_BASE: "1"
       WORKERS_MESSAGE_QUEUE_RETRY_MULTIPLIER: "2"
       WORKERS_MESSAGE_QUEUE_RETRY_LIMIT: "10"
     services:
-      # Management variant (differs from the Go convention of plain
-      # rabbitmq:4.2.2): broker configuration below uses the management HTTP
-      # API on 15672. Health check makes GHA wait for the broker before steps
-      # run (CircleCI used dockerize -wait tcp://localhost:5672).
+      # Management variant: broker topology is configured over the HTTP API
+      # on 15672 (Go jobs use plain rabbitmq:4.2.2).
       rabbitmq:
         image: rabbitmq:4.2.2-management-alpine
         ports:
@@ -91,8 +89,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$CONFIG_PATH" "$CI_ARTIFACTS" "$TEST_RESULTS"
-          # Skipped for callers that don't depend on fatsoma-settings
-          # (v2-spec-helpers — the gem itself; discovery 008).
+          # Skipped for callers that don't bundle fatsoma-settings.
           if ! SETTINGS_DIR=$(bundle info --path fatsoma-settings 2>/dev/null); then
             echo "fatsoma-settings not in bundle; skipping settings distribution"
             exit 0
@@ -101,22 +98,17 @@ jobs:
             cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
           done
 
-      # Prescribed broker topology (not caller-configurable): the same setup
-      # as `message_queue:configure` for the test environment in
-      # v2-tools (docker/README.md "Create queues"), reimplemented over the
-      # management HTTP API so CI does not depend on v2-tools/docker-tools.
-      # Matches v2-queue's CircleCI config_rabbitmq.sh, minus the ha-mode
-      # policies (meaningless on a single ephemeral node and rejected by
-      # RabbitMQ 4.x), and with PUT-if-absent so reruns are idempotent.
+      # Prescribed broker topology for the test environment, over the
+      # management API. ha-mode policies are dropped (meaningless on a
+      # single node, rejected by RabbitMQ 4.x); PUT-if-absent for reruns.
       - name: Configure RabbitMQ broker
         shell: bash
         run: |
           set -euo pipefail
           API=http://localhost:15672/api
           AUTH="guest:guest"
-          # PUT, retrying while the broker is still booting — the service
-          # health check gates the AMQP port; the management API on 15672 can
-          # answer 404/405 until the vhost is fully initialised.
+          # PUT with retries: the management API can 404/405 while the
+          # vhost initialises after the health check passes.
           put() {
             for attempt in $(seq 1 12); do
               if curl -sf -u "$AUTH" -X PUT -H 'content-type: application/json' -d "$2" "$API/$1"; then
@@ -127,7 +119,7 @@ jobs:
             echo "failed to PUT $API/$1 after 60s" >&2
             return 1
           }
-          # Bindings are POST-only on the management API (PUT → 405).
+          # Bindings are POST-only on the management API.
           post() {
             for attempt in $(seq 1 12); do
               if curl -sf -u "$AUTH" -X POST -H 'content-type: application/json' -d "$2" "$API/$1"; then

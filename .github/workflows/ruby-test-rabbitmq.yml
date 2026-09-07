@@ -31,8 +31,7 @@ permissions:
 
 jobs:
   test:
-    # Job name stays "Test" so a repo switching from ruby-test.yml keeps the
-    # same required check name (Go precedent: per-profile files, one job each).
+    # Job name stays "Test" so switching from ruby-test.yml keeps the check.
     name: Test
     runs-on: ubuntu-24.04
     env:
@@ -83,8 +82,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$CONFIG_PATH" "$CI_ARTIFACTS" "$TEST_RESULTS"
-          # Skipped for callers that don't depend on fatsoma-settings
-          # (v2-spec-helpers — the gem itself; discovery 008).
+          # Skipped for callers that don't bundle fatsoma-settings.
           if ! SETTINGS_DIR=$(bundle info --path fatsoma-settings 2>/dev/null); then
             echo "fatsoma-settings not in bundle; skipping settings distribution"
             exit 0

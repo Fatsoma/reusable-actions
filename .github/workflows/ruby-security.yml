@@ -62,10 +62,7 @@ jobs:
           ruby-version: ${{ inputs.ruby-version != '' && inputs.ruby-version || 'default' }}
           bundler-cache: true
 
-      # Dependency CVE scanning is intentionally absent: Dependabot alerts are
-      # enabled on the cohort and cover it (owner decision 2026-09-01).
-      # bundler-audit duplicated that signal. Brakeman stays — Dependabot does
-      # no static analysis of Rails app code.
+      # No dependency CVE scanning — Dependabot alerts cover it.
 
       - name: Rails application check
         id: rails-check
@@ -82,24 +79,12 @@ jobs:
           # Brakeman has dropped support for Ruby 2, so we need to use an older version until we upgrade Ruby
           BRAKEMAN_VERSION: ~> 5.0
         run: |
-          mkdir -p artifacts
-          # Brakeman parses source without executing it, so it runs standalone
-          # outside the app bundle — no Gemfile, no interaction with the
-          # caller's bundler config (setup-ruby's bundler-cache deployment
-          # mode broke the previous ad-hoc Gemfile.brakeman on the
-          # v2-service-organisation pilot).
+          # Standalone: brakeman parses source without executing the app.
           gem install brakeman -v "$BRAKEMAN_VERSION" --no-document
-          # EOLRails/EOLRuby are excluded: every cohort repo is on Rails 5.2 /
-          # Ruby 2.7 (both EOL — known, tracked, and upgrade is a programme
-          # outside CI migration scope).
-          # Advisory on warnings, gating on everything else: CircleCI's rake
-          # task ended with `echo $?`, swallowing the exit code, so brakeman
-          # has never failed a cohort build and every repo carries an unknown
-          # warning backlog (organisation: 2 SQL injection warnings). Gating
-          # on warnings is a separate triage programme decision.
-          # Brakeman exit codes are preserved: 3 (warnings found) is
-          # tolerated; errors (7), outdated gem (5), missing checks (6),
-          # ignore-file problems (8/9), and crashes still fail the job.
+          mkdir -p artifacts
+          # Advisory, not a gate: tolerate exit 3 (warnings found); errors and
+          # misconfiguration still fail. EOLRails/EOLRuby excluded — the
+          # cohort is on EOL Rails 5.2 / Ruby 2.7 by known exception.
           brakeman --except EOLRails,EOLRuby -o artifacts/brakeman.html || [ $? -eq 3 ]
 
       - name: Skip notice

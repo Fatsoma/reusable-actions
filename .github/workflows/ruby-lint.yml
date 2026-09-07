@@ -68,8 +68,8 @@ jobs:
         id: range
         shell: bash
         run: |
-          # pull_request: fork point of base and head. push: previous ref tip (event before).
-          # Falls back to full-repo lint when no base can be resolved (e.g. branch creation push).
+          # pull_request: merge-base of base and head; push: event.before.
+          # Falls back to full-repo lint when no base resolves.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch origin "${{ github.base_ref }}" --depth=1
             BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD || true)
