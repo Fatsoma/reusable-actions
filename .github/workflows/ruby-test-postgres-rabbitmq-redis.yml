@@ -42,14 +42,15 @@ jobs:
       TEST_RESULTS: /home/runner/test-results
       PAGER: cat
     services:
-      # POSTGRES_HOST_AUTH_METHOD=trust: the CircleCI cimg/postgres image
-      # allowed local connections as any role (specs connect as the postgres
-      # superuser, e.g. v2-fatsoma-database-tools' spec/support/config.yml)
-      # while POSTGRES_USER=fatsoma is the provisioned role for app code.
+      # POSTGRES_USER=root: the cohort's settings (v2-fatsoma-settings
+      # .env.circle) connect every service as the root role — 42 services
+      # set DATABASE_USERNAME=root — matching what CircleCI's cimg/postgres
+      # provisioned. POSTGRES_HOST_AUTH_METHOD=trust replicates cimg's
+      # passwordless local auth.
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_USER: fatsoma
+          POSTGRES_USER: root
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
