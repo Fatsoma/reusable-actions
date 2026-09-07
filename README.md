@@ -207,7 +207,7 @@ The lint, test, and security workflows accept the same optional inputs; the serv
 | `app-client-id` | —               | GitHub App client ID for private gem access. Required with `gem-allowlist`. |
 | `gem-allowlist` | —               | Newline-delimited private gem repositories for the GitHub App token.        |
 
-`ruby-test-postgres-redis.yml` additionally accepts `db-setup` (`structure-load` | `schema-load` | `test-prepare`) for Rails DB preparation; omit it when the suite needs no DB setup.
+The service-backed test variants run `db:create db:test:prepare` before the specs; the whole cohort is `schema_format :sql`, so `db:test:prepare` loads `db/structure.sql` after checking for pending migrations.
 
 ### What each workflow does
 

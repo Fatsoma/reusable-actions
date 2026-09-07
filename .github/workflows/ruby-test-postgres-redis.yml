@@ -15,10 +15,6 @@ on:
         description: Newline-delimited private gem repositories the GitHub App token may fetch. Omit for public-only Gemfiles — no token is created and no private access is configured.
         required: false
         type: string
-      db-setup:
-        description: "Rails DB preparation before specs: structure-load (db:create db:structure:load), schema-load (db:schema:load), or test-prepare (db:test:prepare — analytics/order variant). Omit when the suite needs no DB setup."
-        required: false
-        type: string
     secrets:
       FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
         description: GitHub App private key used to read private gem repositories. Required only when gem-allowlist is set.
@@ -109,20 +105,11 @@ jobs:
 
       # Service readiness is gated by the container health checks above
       # (CircleCI used dockerize -wait with a 1m timeout per port).
+      # db:test:prepare checks for pending migrations, then loads
+      # db/structure.sql — the whole cohort is schema_format :sql.
       - name: Prepare database
-        if: inputs.db-setup == 'structure-load'
         shell: bash
-        run: RAILS_ENV=test bundle exec rake db:create db:structure:load
-
-      - name: Prepare database (schema)
-        if: inputs.db-setup == 'schema-load'
-        shell: bash
-        run: RAILS_ENV=test bundle exec rake db:schema:load
-
-      - name: Prepare database (test-prepare)
-        if: inputs.db-setup == 'test-prepare'
-        shell: bash
-        run: RAILS_ENV=test bundle exec rake db:test:prepare
+        run: RAILS_ENV=test bundle exec rake db:create db:test:prepare
 
       - name: Run specs
         shell: bash
