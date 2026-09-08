@@ -15,6 +15,11 @@ on:
         description: Newline-delimited private gem repositories the GitHub App token may fetch. Omit for public-only Gemfiles — no token is created and no private access is configured.
         required: false
         type: string
+      prepare-database:
+        description: Run db:create and db:test:prepare before running specs.
+        default: true
+        required: false
+        type: boolean
     secrets:
       FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
         description: GitHub App private key used to read private gem repositories. Required only when gem-allowlist is set.
@@ -114,6 +119,7 @@ jobs:
       # db:test:prepare guards pending migrations, then loads
       # db/structure.sql (cohort is schema_format :sql).
       - name: Prepare database
+        if: inputs.prepare-database
         shell: bash
         run: RAILS_ENV=test bundle exec rake db:create db:test:prepare
 

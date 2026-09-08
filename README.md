@@ -203,13 +203,14 @@ Repositories without private gem dependencies can omit `secrets: inherit` entire
 
 The lint, test, and security workflows accept the same optional inputs; the service-backed test variants add their own (see below).
 
-| Input           | Default         | Purpose                                                                     |
-| --------------- | --------------- | --------------------------------------------------------------------------- |
-| `ruby-version`  | `.ruby-version` | Ruby version for setup-ruby.                                                |
-| `app-client-id` | —               | GitHub App client ID for private gem access. Required with `gem-allowlist`. |
-| `gem-allowlist` | —               | Newline-delimited private gem repositories for the GitHub App token.        |
+| Input              | Default         | Purpose                                                                     |
+| ------------------ | --------------- | --------------------------------------------------------------------------- |
+| `ruby-version`     | `.ruby-version` | Ruby version for setup-ruby.                                                |
+| `app-client-id`    | —               | GitHub App client ID for private gem access. Required with `gem-allowlist`. |
+| `gem-allowlist`    | —               | Newline-delimited private gem repositories for the GitHub App token.        |
+| `prepare-database` | `true`          | Run `db:create db:test:prepare` before running specs (postgres variants).   |
 
-The service-backed test variants run `db:create db:test:prepare` before the specs; the whole cohort is `schema_format :sql`, so `db:test:prepare` loads `db/structure.sql` after checking for pending migrations.
+The service-backed test variants run `db:create db:test:prepare` before the specs when `prepare-database` is true (the default); the whole cohort is `schema_format :sql`, so `db:test:prepare` loads `db/structure.sql` after checking for pending migrations.
 
 ### What each workflow does
 
