@@ -71,7 +71,7 @@ jobs:
           # pull_request: merge-base of base and head; push: event.before.
           # Falls back to full-repo lint when no base resolves.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch origin "${{ github.base_ref }}" --depth=1
+            git fetch origin "${{ github.base_ref }}"
             BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD || true)
           else
             BASE="${{ github.event.before }}"
