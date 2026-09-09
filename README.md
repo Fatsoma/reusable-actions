@@ -210,7 +210,7 @@ The lint, test, and security workflows accept the same optional inputs; the serv
 | `gem-allowlist`    | —               | Newline-delimited private gem repositories for the GitHub App token.        |
 | `prepare-database` | `true`          | Run `db:create db:test:prepare` before running specs (postgres variants).   |
 
-The service-backed test variants run `db:create db:test:prepare` before the specs when `prepare-database` is true (the default); the whole cohort is `schema_format :sql`, so `db:test:prepare` loads `db/structure.sql` after checking for pending migrations.
+The service-backed test variants run `db:create db:test:prepare` before the specs when `prepare-database` is true (the default); gems and services use `schema_format :sql`, so `db:test:prepare` loads `db/structure.sql` after checking for pending migrations.
 
 ### What each workflow does
 

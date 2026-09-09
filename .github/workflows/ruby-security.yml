@@ -84,7 +84,7 @@ jobs:
           mkdir -p artifacts
           # Advisory, not a gate: tolerate exit 3 (warnings found); errors and
           # misconfiguration still fail. EOLRails/EOLRuby excluded — the
-          # cohort is on EOL Rails 5.2 / Ruby 2.7 by known exception.
+          # gems and services are on EOL Rails 5.2 / Ruby 2.7 by known exception.
           status=0
           brakeman --except EOLRails,EOLRuby -o artifacts/brakeman.html || status=$?
           if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then

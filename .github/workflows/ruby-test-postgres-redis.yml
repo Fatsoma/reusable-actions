@@ -45,10 +45,10 @@ jobs:
       COVERAGE: "true"
       PAGER: cat
     services:
-      # Cohort settings connect as the root role (v2-fatsoma-settings
+      # Settings connect as the root role (v2-fatsoma-settings
       # .env.circle); trust auth replicates passwordless local access.
       postgres:
-        image: cimg/postgres:17.9
+        image: postgres:17.9-alpine
         env:
           POSTGRES_USER: root
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -60,7 +60,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redis:
-        image: redis:3-alpine
+        image: redis:6.2.6-alpine
         ports:
           - 6379:6379
         options: >-
@@ -108,7 +108,7 @@ jobs:
           done
 
       # db:test:prepare guards pending migrations, then loads
-      # db/structure.sql (cohort is schema_format :sql).
+      # db/structure.sql (gems and services use schema_format :sql).
       - name: Prepare database
         if: inputs.prepare-database
         shell: bash
