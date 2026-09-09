@@ -45,8 +45,7 @@ jobs:
       COVERAGE: "true"
       PAGER: cat
     services:
-      # Settings connect as the root role (v2-fatsoma-settings
-      # .env.circle); trust auth replicates passwordless local access.
+      # Matches v2-fatsoma-settings .env.circle local root trust auth
       postgres:
         image: postgres:17.9-alpine
         env:
@@ -107,7 +106,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$CONFIG_PATH"
-          # Skipped for callers that don't bundle fatsoma-settings.
           if ! SETTINGS_DIR=$(bundle info --path fatsoma-settings 2>/dev/null); then
             echo "fatsoma-settings not in bundle; skipping settings distribution"
             exit 0
@@ -116,8 +114,7 @@ jobs:
             cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
           done
 
-      # db:test:prepare guards pending migrations, then loads
-      # db/structure.sql (gems and services use schema_format :sql).
+      # Checks pending migrations and loads db/structure.sql
       - name: Prepare database
         if: inputs.prepare-database
         shell: bash

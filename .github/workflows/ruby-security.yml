@@ -62,8 +62,6 @@ jobs:
           ruby-version: ${{ inputs.ruby-version != '' && inputs.ruby-version || 'default' }}
           bundler-cache: true
 
-      # No dependency CVE scanning — Dependabot alerts cover it.
-
       - name: Rails application check
         id: rails-check
         shell: bash
@@ -76,15 +74,12 @@ jobs:
         if: steps.rails-check.outputs.rails_app == 'true'
         shell: bash
         env:
-          # Brakeman has dropped support for Ruby 2, so we need to use an older version until we upgrade Ruby
+          # Last major version supporting Ruby 2.7
           BRAKEMAN_VERSION: ~> 5.0
         run: |
-          # Standalone: brakeman parses source without executing the app.
           gem install brakeman -v "$BRAKEMAN_VERSION" --no-document
           mkdir -p artifacts
-          # Advisory, not a gate: tolerate exit 3 (warnings found); errors and
-          # misconfiguration still fail. EOLRails/EOLRuby excluded — the
-          # gems and services are on EOL Rails 5.2 / Ruby 2.7 by known exception.
+          # Advisory: allow exit 3 (warnings); fatal errors still fail.
           status=0
           brakeman --except EOLRails,EOLRuby -o artifacts/brakeman.html || status=$?
           if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then

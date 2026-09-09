@@ -69,7 +69,6 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$CONFIG_PATH"
-          # Skipped for callers that don't bundle fatsoma-settings.
           if ! SETTINGS_DIR=$(bundle info --path fatsoma-settings 2>/dev/null); then
             echo "fatsoma-settings not in bundle; skipping settings distribution"
             exit 0
@@ -88,7 +87,6 @@ jobs:
         if: success()
         shell: bash
         run: |
-          # SimpleCov writes .last_run.json under coverage/ in the checkout.
           COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
           echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
 
