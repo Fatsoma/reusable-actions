@@ -133,7 +133,9 @@ jobs:
       - name: Prepare database
         if: inputs.prepare-database
         shell: bash
-        run: RAILS_ENV=test bundle exec rake db:create db:test:prepare
+        env:
+          RAILS_ENV: test
+        run: bundle exec rake db:create db:test:prepare
 
       - name: Run specs
         shell: bash
