@@ -1,4 +1,4 @@
-name: Ruby Test
+name: Ruby Test (Postgres + Redis)
 
 on:
   workflow_call:
@@ -15,6 +15,11 @@ on:
         description: Newline-delimited private gem repositories the GitHub App token may fetch. Omit for public-only Gemfiles — no token is created and no private access is configured.
         required: false
         type: string
+      prepare-database:
+        description: Run db:create and db:test:prepare before running specs.
+        default: true
+        required: false
+        type: boolean
     secrets:
       FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY:
         description: GitHub App private key used to read private gem repositories. Required only when gem-allowlist is set.
@@ -39,6 +44,29 @@ jobs:
       CONFIG_PATH: /home/runner/v2-fatsoma-settings
       COVERAGE: "true"
       PAGER: cat
+    services:
+      # Matches v2-fatsoma-settings .env.circle local root trust auth
+      postgres:
+        image: postgres:17.9-alpine
+        env:
+          POSTGRES_USER: root
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:6.2.6-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -77,6 +105,14 @@ jobs:
             cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
           done
 
+      # Checks pending migrations and loads db/structure.sql
+      - name: Prepare database
+        if: inputs.prepare-database
+        shell: bash
+        env:
+          RAILS_ENV: test
+        run: bundle exec rake db:create db:test:prepare
+
       - name: Run specs
         shell: bash
         run: |
@@ -89,6 +125,14 @@ jobs:
         run: |
           COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
           echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Show Postgres logs on failure
+        if: failure()
+        run: docker logs "${{ job.services.postgres.id }}" || true
+
+      - name: Show Redis logs on failure
+        if: failure()
+        run: docker logs "${{ job.services.redis.id }}" || true
 
       - name: Upload test results
         if: always()

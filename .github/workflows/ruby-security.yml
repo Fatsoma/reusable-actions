@@ -1,4 +1,4 @@
-name: Ruby Test
+name: Ruby Security
 
 on:
   workflow_call:
@@ -30,15 +30,12 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test
+  security:
+    name: Security
     runs-on: ubuntu-24.04
     env:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM: ${{ secrets.BUNDLE_RUBYGEMS__PKG__GITHUB__COM }}
       BUNDLE_GEMS__RAILSLTS__COM: ${{ secrets.BUNDLE_GEMS__RAILSLTS__COM }}
-      CONFIG_PATH: /home/runner/v2-fatsoma-settings
-      COVERAGE: "true"
-      PAGER: cat
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -65,43 +62,39 @@ jobs:
           ruby-version: ${{ inputs.ruby-version != '' && inputs.ruby-version || 'default' }}
           bundler-cache: true
 
-      - name: Distribute settings env files
+      - name: Rails application check
+        id: rails-check
         shell: bash
         run: |
-          mkdir -p "$CONFIG_PATH"
-          if ! SETTINGS_DIR=$(bundle info --path fatsoma-settings 2>/dev/null); then
-            echo "fatsoma-settings not in bundle; skipping settings distribution"
-            exit 0
+          if [ -d app ]; then
+            echo "rails_app=true" >> "$GITHUB_OUTPUT"
           fi
-          for env in test development local; do
-            cp -v "$SETTINGS_DIR/.env.circle" "$CONFIG_PATH/.env.$env"
-          done
 
-      - name: Run specs
+      - name: Brakeman
+        if: steps.rails-check.outputs.rails_app == 'true'
         shell: bash
+        env:
+          # Last major version supporting Ruby 2.7
+          BRAKEMAN_VERSION: ~> 5.0
         run: |
-          mkdir -p test-results
-          bundle exec rspec --format json --out test-results/results.json --format documentation spec
+          gem install brakeman -v "$BRAKEMAN_VERSION" --no-document
+          mkdir -p artifacts
+          # Advisory: allow exit 3 (warnings); fatal errors still fail.
+          status=0
+          brakeman --except EOLRails,EOLRuby -o artifacts/brakeman.html || status=$?
+          if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then
+            exit "$status"
+          fi
 
-      - name: Write coverage summary
-        if: success()
+      - name: Skip notice
+        if: steps.rails-check.outputs.rails_app != 'true'
         shell: bash
-        run: |
-          COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
-          echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Not a Rails application — nothing to scan (dependency CVEs are covered by Dependabot)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload test results
+      - name: Upload security artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: test-results
-          path: test-results/
-          if-no-files-found: ignore
-
-      - name: Upload coverage + artifacts
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: coverage
-          path: coverage/
+          name: security-scan-results
+          path: artifacts/
           if-no-files-found: ignore

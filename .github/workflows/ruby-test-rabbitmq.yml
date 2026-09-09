@@ -1,4 +1,4 @@
-name: Ruby Test
+name: Ruby Test (RabbitMQ)
 
 on:
   workflow_call:
@@ -39,6 +39,16 @@ jobs:
       CONFIG_PATH: /home/runner/v2-fatsoma-settings
       COVERAGE: "true"
       PAGER: cat
+    services:
+      rabbitmq:
+        image: rabbitmq:4.2.2-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -89,6 +99,10 @@ jobs:
         run: |
           COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
           echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Show RabbitMQ logs on failure
+        if: failure()
+        run: docker logs "${{ job.services.rabbitmq.id }}" || true
 
       - name: Upload test results
         if: always()
