@@ -8,7 +8,7 @@ on:
         required: true
     secrets:
       BUNDLE_RUBYGEMS__PKG__GITHUB__COM:
-        description: "The GitHub token to use for private gem sources"
+        description: Token for rubygems.pkg.github.com gem sources. Required only for Gemfiles sourcing from GitHub Packages.
         required: true
 jobs:
   build:
