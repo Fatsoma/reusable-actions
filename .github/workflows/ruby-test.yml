@@ -58,7 +58,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ steps.gem-token.outputs.token }}
-        run: git config --global url."https://x-access-token:${GH_TOKEN}@github.com/Fatsoma/".insteadOf "git@github.com:Fatsoma/"
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/Fatsoma/".insteadOf "git@github.com:Fatsoma/"
+          git config --global --add url."https://x-access-token:${GH_TOKEN}@github.com/Fatsoma/".insteadOf "https://github.com/Fatsoma/"
 
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
         with:
@@ -87,8 +89,8 @@ jobs:
         if: success()
         shell: bash
         run: |
-          COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); puts j.dig("result", "covered_percent") || j.dig(:result, :covered_percent)' 2>/dev/null || echo "n/a")
-          echo "total: **${COVERED}%**" >> "$GITHUB_STEP_SUMMARY"
+          COVERED=$(ruby -rjson -e 'j = JSON.parse(File.read("coverage/.last_run.json")); v = j.dig("result", "line") || j.dig("result", "covered_percent"); puts v ? "#{v}%" : "n/a"' 2>/dev/null || echo "n/a")
+          echo "total: **${COVERED}**" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload test results
         if: always()

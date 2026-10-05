@@ -55,7 +55,7 @@ The `if:` guard on each caller job skips the job for pull requests opened from f
 
 ## Private dependencies
 
-Both the Go and Ruby workflows follow the same pattern when a repository depends on private Fatsoma repositories: the caller passes the GitHub App client ID plus a newline-delimited allowlist of the private repositories to read, and `secrets: inherit` passes the caller's secrets — including `FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY` — to the reusable workflow. Both `app-client-id` and the allowlist input are required together; when the allowlist is omitted, no token is created and no private access is configured. The workflow rewrites `github.com` remote URLs (HTTPS or SSH) to token-authenticated HTTPS before dependency installation; manifests and lockfiles keep recording their original remotes and need no changes.
+Both the Go and Ruby workflows follow the same pattern when a repository depends on private Fatsoma repositories: the caller passes the GitHub App client ID plus a newline-delimited allowlist of the private repositories to read, and `secrets: inherit` passes the caller's secrets — including `FATSOMA_DEPENDENCIES_APP_PRIVATE_KEY` — to the reusable workflow. Both `app-client-id` and the allowlist input are required together; when the allowlist is omitted, no token is created and no private access is configured. Before dependency installation, the Go workflows rewrite `https://github.com/` URLs and the Ruby workflows rewrite both `git@github.com:Fatsoma/` (SSH) and `https://github.com/Fatsoma/` URLs to token-authenticated HTTPS; manifests and lockfiles keep recording their original remotes and need no changes.
 
 Before this works for a new repository, an organisation admin must grant access in two places:
 
@@ -214,7 +214,7 @@ The service-backed test variants run `db:create db:test:prepare` before the spec
 
 ### What each workflow does
 
-`ruby-lint.yml` runs rubocop with `--fail-level convention --force-exclusion` on the Ruby files changed in the pull request or push; when no base resolves it lints the whole repo. The caller's `.rubocop.yml` is used when present.
+`ruby-lint.yml` runs rubocop with `--fail-level convention --force-exclusion` on the Ruby files changed in the pull request or push; when no base resolves (a new branch, a force-push whose previous commit is gone, or a manual dispatch) it skips rubocop with a notice. The caller's `.rubocop.yml` is used when present.
 
 `ruby-test.yml` distributes the bundled fatsoma-settings gem's `.env.circle` into `$CONFIG_PATH/.env.{test,development,local}`, then runs `bundle exec rspec --format json --format documentation spec`, uploading the JSON test results and the coverage report. SimpleCov writes its HTML report and `.last_run.json` under `coverage/`; the workflow appends `total: **N%**` to the job's step summary.
 

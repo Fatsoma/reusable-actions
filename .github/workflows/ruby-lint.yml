@@ -57,7 +57,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ steps.gem-token.outputs.token }}
-        run: git config --global url."https://x-access-token:${GH_TOKEN}@github.com/Fatsoma/".insteadOf "git@github.com:Fatsoma/"
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/Fatsoma/".insteadOf "git@github.com:Fatsoma/"
+          git config --global --add url."https://x-access-token:${GH_TOKEN}@github.com/Fatsoma/".insteadOf "https://github.com/Fatsoma/"
 
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
         with:
@@ -68,7 +70,7 @@ jobs:
         id: range
         shell: bash
         run: |
-          # Falls back to full-repo lint when merge-base or before SHA does not resolve.
+          # Leaves base empty (and lint skipped) when merge-base or before SHA does not resolve.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch origin "${{ github.base_ref }}"
             BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD || true)
@@ -88,12 +90,15 @@ jobs:
           BASE: ${{ steps.range.outputs.base }}
         run: |
           RUBY_PATTERN='(\.r[bu]|\.gemspec|\.podspec|\.jbuilder|\.rake|Gemfile|Rakefile|Capfile|Guardfile|Podfile|Thorfile|Vagrantfile)$'
-          if [ -n "$BASE" ]; then
-            FILES=$(git diff --diff-filter=ACMR --name-only "$BASE" HEAD | grep -E "$RUBY_PATTERN" | tr '\n' ' ' || true)
-          else
-            FILES=$(git ls-files | grep -E "$RUBY_PATTERN" | tr '\n' ' ' || true)
+          if [ -z "$BASE" ]; then
+            echo "::notice::No diff base resolved; skipping rubocop"
+            exit 0
           fi
-          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+          {
+            echo "files<<RUBY_FILES_EOF"
+            git diff --diff-filter=ACMR --name-only "$BASE" HEAD | grep -E "$RUBY_PATTERN" || true
+            echo "RUBY_FILES_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Rubocop on changed files
         shell: bash
@@ -102,7 +107,8 @@ jobs:
         run: |
           bundle exec rubocop --version
           if [ -n "$CHANGED_RUBY_FILES" ]; then
-            bundle exec rubocop --fail-level convention --force-exclusion $CHANGED_RUBY_FILES
+            mapfile -t FILES <<< "$CHANGED_RUBY_FILES"
+            bundle exec rubocop --fail-level convention --force-exclusion "${FILES[@]}"
           else
             echo "No changed files"
           fi
