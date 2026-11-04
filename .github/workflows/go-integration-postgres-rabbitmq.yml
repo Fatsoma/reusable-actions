@@ -138,6 +138,8 @@ jobs:
         shell: bash
         env:
           GOPRIVATE: github.com/fatsoma/*
+          # The migration tool may need a newer Go than the app; let Go download it.
+          GOTOOLCHAIN: auto
         run: |
           cd "${{ inputs.migrations-dir }}"
           go run github.com/fatsoma/v2-migration-tool/cmd/migration-tool@latest up
